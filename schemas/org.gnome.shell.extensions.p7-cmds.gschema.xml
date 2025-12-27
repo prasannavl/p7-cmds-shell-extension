@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist>
+  <schema id="org.gnome.shell.extensions.p7-cmds" path="/org/gnome/shell/extensions/p7-cmds/">
+    <key name="cmd-win-optsize" type="as">
+      <default>["&lt;Super&gt;x"]</default>
+      <summary>Optimal size focused window</summary>
+      <description>Resize the focused window to a size based on the monitor work area and center it.</description>
+    </key>
+    <key name="win-optsize-config" type="s">
+      <default>"{\"default-scales\":[[0.8,null],[0.7,0.8],[0.6,0.8]],\"breakpoints\":[{\"maxWidth\":1920,\"scales\":[[0.8,null]]},{\"maxWidth\":2560,\"scales\":[[0.8,0.8],[0.7,0.8]]}]}"</default>
+      <summary>Win optsize config</summary>
+      <description>JSON config for win_optsize breakpoints and scales.</description>
+    </key>
+    <key name="keybinding-flags" type="s">
+      <default>"IGNORE_AUTOREPEAT"</default>
+      <summary>Keybinding flags</summary>
+      <description>Meta.KeyBindingFlags name or numeric value used for extension keybindings.</description>
+    </key>
+    <key name="keybinding-actionmode" type="s">
+      <default>"NORMAL"</default>
+      <summary>Keybinding action mode</summary>
+      <description>Shell.ActionMode name or numeric value used for extension keybindings.</description>
+    </key>
+  </schema>
+</schemalist>

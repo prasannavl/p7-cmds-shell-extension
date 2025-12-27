@@ -1,0 +1,58 @@
+// extension.js
+
+import { ConfigManager } from "./config.js";
+import { KeybindManager } from "./keybindmanager.js";
+import logger from "./utils.js";
+import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
+
+export default class P7ShortcutsExtension extends Extension {
+	constructor(metadata) {
+		super(metadata);
+
+		/** @type {ConfigManager | null} */
+		this.configManager = null;
+		/** @type {KeybindManager | null} */
+		this.keybindManager = null;
+		this._configChangeCallback = null;
+	}
+
+	enable() {
+		logger.log("Extension enabled");
+
+		this.configManager = new ConfigManager(this.getSettings());
+		this.keybindManager = new KeybindManager(
+			this.getSettings(),
+			this.configManager,
+		);
+		this.keybindManager.enable();
+		this._configChangeCallback = (changeType) => {
+			logger.log(`Config changed: ${changeType}`);
+			this._onConfigChanged(changeType);
+		};
+		this.configManager.addConfigChangeListener(this._configChangeCallback);
+	}
+
+	disable() {
+		logger.log("Extension disabled");
+		if (this._configChangeCallback && this.configManager) {
+			this.configManager.removeConfigChangeListener(this._configChangeCallback);
+		}
+
+		if (this.keybindManager) {
+			this.keybindManager.disable();
+			this.keybindManager = null;
+		}
+
+		if (this.configManager) {
+			this.configManager.destroy();
+			this.configManager = null;
+		}
+		this._configChangeCallback = null;
+	}
+
+	_onConfigChanged(changeType) {
+		if (changeType === "settings-changed" && this.keybindManager) {
+			this.keybindManager.reload();
+		}
+	}
+}
