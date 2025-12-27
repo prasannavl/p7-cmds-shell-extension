@@ -20,9 +20,6 @@ Commands:
   - A command that does optimal sizing for the focused window.
   - It checks for the current size of the monitor and centers the window, and
     sizes the windows to fixed percent widths and heights.
-  - Currently, GNOME is buggy with multiple monitors, and it often misplaces
-    windows out of bounds or at extremely large sizes. This can quickly help
-    bring those windows into an optimal size.
 
 Compatibility:
 
