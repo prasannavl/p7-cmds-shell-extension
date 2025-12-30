@@ -1,8 +1,8 @@
 // cmds.js
 
-import { DEFAULT_WIN_OPTSIZE_CONFIG } from "./common.js";
 import Meta from "gi://Meta";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
+import { DEFAULT_WIN_OPTSIZE_CONFIG } from "./common.js";
 
 let winOptsizeCycleState = null;
 
