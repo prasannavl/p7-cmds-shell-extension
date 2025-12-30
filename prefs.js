@@ -725,8 +725,10 @@ function buildWinOptsizeConfigGroup(settings) {
 	jsonGroup.add(jsonRow);
 
 	const stack = new Adw.ViewStack();
-	stack.add_titled(configGroup, "config", "Config");
-	stack.add_titled(jsonGroup, "json", "JSON");
+	const configPage = stack.add_titled(configGroup, "config", "Config");
+	configPage.set_icon_name("preferences-system-symbolic");
+	const jsonPage = stack.add_titled(jsonGroup, "json", "JSON");
+	jsonPage.set_icon_name("text-x-generic-symbolic");
 	stack.set_hexpand(true);
 	stack.set_vexpand(true);
 
@@ -762,6 +764,7 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 
 		const shortcutsPage = new Adw.PreferencesPage({
 			title: "P7 Commands",
+			icon_name: "preferences-desktop-keyboard-shortcuts-symbolic",
 		});
 		window.add(shortcutsPage);
 
@@ -794,6 +797,7 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 
 		const optsizePage = new Adw.PreferencesPage({
 			title: "Win optsize",
+			icon_name: "window-maximize-symbolic",
 		});
 		window.add(optsizePage);
 		optsizePage.add(buildWinOptsizeConfigGroup(settings));
