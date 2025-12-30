@@ -39,7 +39,7 @@ function win_optsize(config) {
 		return;
 	}
 
-	if (win.get_maximized && win.get_maximized() !== Meta.MaximizeFlags.NONE) {
+	if (win.get_maximized() !== Meta.MaximizeFlags.NONE) {
 		win.unmaximize(Meta.MaximizeFlags.BOTH);
 	}
 
@@ -49,14 +49,10 @@ function win_optsize(config) {
 	const winConfig = config?.winOptsize ?? DEFAULT_WIN_OPTSIZE_CONFIG;
 	const scales = resolveWinOptsizeScales(config, workArea);
 
-	const winId =
-		typeof win.get_id === "function" ? win.get_id() : win.get_stable_sequence();
+	const winId = win.get_id();
 	let cycleState = winOptsizeCycleState;
 	if (!cycleState || cycleState.winId !== winId) {
-		const frameRect =
-			typeof win.get_frame_rect === "function"
-				? win.get_frame_rect()
-				: win.get_rect();
+		const frameRect = win.get_frame_rect();
 		cycleState = {
 			winId,
 			index: -1,
