@@ -6,6 +6,7 @@ import Meta from "gi://Meta";
 import Shell from "gi://Shell";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { COMMANDS } from "./cmds.js";
+import { ConfigManager } from "./config.js";
 
 const COMMON_KEYBINDING_SCHEMAS = [
 	"org.gnome.desktop.wm.keybindings",
@@ -16,10 +17,11 @@ const COMMON_KEYBINDING_SCHEMAS = [
 ];
 
 export class KeyBindManager {
-	constructor(settings, configManager, logger) {
+	constructor(settings, logger) {
 		this._settings = settings;
-		this._configManager = configManager;
 		this._logger = logger;
+		this._configManager = new ConfigManager(settings, logger);
+		this._configChangeCallback = (x) => this._onConfigChanged(x);
 		this._replacedBindings = new Map();
 		this._conflictSettings = COMMON_KEYBINDING_SCHEMAS.map(
 			(schema) => new Gio.Settings({ schema }),
@@ -32,6 +34,7 @@ export class KeyBindManager {
 			return;
 		}
 		this._enabled = true;
+		this._configManager.addConfigChangeListener(this._configChangeCallback);
 		this._applyBindings();
 	}
 
@@ -41,6 +44,8 @@ export class KeyBindManager {
 		}
 		this._removeKeybindings();
 		this._restoreConflicts();
+		this._configManager.removeConfigChangeListener(this._configChangeCallback);
+		this._configManager.destroy();
 		this._enabled = false;
 	}
 
@@ -51,6 +56,13 @@ export class KeyBindManager {
 		this._removeKeybindings();
 		this._restoreConflicts();
 		this._applyBindings();
+	}
+
+	_onConfigChanged(changeType) {
+		this._logger.log(`Config changed: ${changeType}`);
+		if (changeType === "settings-changed") {
+			this.reload();
+		}
 	}
 
 	_applyBindings() {
