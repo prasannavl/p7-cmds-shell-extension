@@ -6,7 +6,6 @@ import Meta from "gi://Meta";
 import Shell from "gi://Shell";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { COMMANDS } from "./cmds.js";
-import logger from "./utils.js";
 
 const COMMON_KEYBINDING_SCHEMAS = [
 	"org.gnome.desktop.wm.keybindings",
@@ -17,9 +16,10 @@ const COMMON_KEYBINDING_SCHEMAS = [
 ];
 
 export class KeybindManager {
-	constructor(settings, configManager) {
+	constructor(settings, configManager, logger) {
 		this._settings = settings;
 		this._configManager = configManager;
+		this._logger = logger;
 		this._replacedBindings = new Map();
 		this._conflictSettings = COMMON_KEYBINDING_SCHEMAS.map(
 			(schema) => new Gio.Settings({ schema }),
@@ -74,9 +74,9 @@ export class KeybindManager {
 			}
 
 			const handler = (...args) => {
-				logger.log(`Called keybind ${command.key}`);
+				this._logger.log(`Called keybind ${command.key}`);
 				const currentConfig = this._configManager.getConfig();
-				return command.handler(currentConfig, ...args);
+				return command.handler(currentConfig, this._logger, ...args);
 			};
 
 			Main.wm.addKeybinding(
@@ -86,7 +86,9 @@ export class KeybindManager {
 				actionMode,
 				handler,
 			);
-			logger.log(`Bound keybind ${command.key} to ${accelerators.join(", ")}`);
+			this._logger.log(
+				`Bound keybind ${command.key} to ${accelerators.join(", ")}`,
+			);
 		}
 	}
 
@@ -115,7 +117,7 @@ export class KeybindManager {
 
 				this._rememberReplaced(schemaId, key, current);
 				settings.set_strv(key, []);
-				logger.log(
+				this._logger.log(
 					`Removed conflicting keybind ${schemaId}::${key} (${accel})`,
 				);
 			}
@@ -142,7 +144,7 @@ export class KeybindManager {
 			}
 			for (const [key, value] of keys) {
 				settings.set_strv(key, value);
-				logger.log(`Restored keybind ${schemaId}::${key}`);
+				this._logger.log(`Restored keybind ${schemaId}::${key}`);
 			}
 		}
 		this._replacedBindings.clear();

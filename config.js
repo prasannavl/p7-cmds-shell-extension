@@ -2,7 +2,6 @@
 
 import Meta from "gi://Meta";
 import Shell from "gi://Shell";
-import logger from "./utils.js";
 import { COMMANDS } from "./cmds.js";
 import {
 	ACTION_MODE_NAMES,
@@ -21,9 +20,10 @@ const SHELL_ACTION_MODES = Object.fromEntries(
 );
 
 export class ConfigManager {
-	constructor(settings) {
+	constructor(settings, logger) {
 		// Use the settings object provided by Extension.getSettings()
 		this._settings = settings;
+		this._logger = logger;
 
 		// Callbacks for config changes
 		this._configChangeCallbacks = new Set();
@@ -94,7 +94,7 @@ export class ConfigManager {
 
 		if (changed) {
 			this._settings.set_strv(key, cleaned);
-			logger.log(`Sanitized invalid keybindings for ${key}`);
+			this._logger.log(`Sanitized invalid keybindings for ${key}`);
 		}
 
 		return cleaned;
@@ -113,7 +113,7 @@ export class ConfigManager {
 		this._ensureDefaultSaved("keybinding-flags");
 		this._ensureDefaultSaved("keybinding-actionmode");
 		this._ensureDefaultSaved("win-optsize-config");
-		logger.log("Default configuration values saved to dconf");
+		this._logger.log("Default configuration values saved to dconf");
 	}
 
 	_ensureDefaultSaved(key) {
@@ -173,7 +173,7 @@ export class ConfigManager {
 			try {
 				callback(changeType);
 			} catch (error) {
-				logger.error("Error in config change callback:", error);
+				this._logger.error("Error in config change callback:", error);
 			}
 		}
 	}

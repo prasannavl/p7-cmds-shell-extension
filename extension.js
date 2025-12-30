@@ -2,7 +2,6 @@
 
 import { ConfigManager } from "./config.js";
 import { KeybindManager } from "./keybindmanager.js";
-import logger from "./utils.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 
 export default class P7ShortcutsExtension extends Extension {
@@ -14,26 +13,31 @@ export default class P7ShortcutsExtension extends Extension {
 		/** @type {KeybindManager | null} */
 		this.keybindManager = null;
 		this._configChangeCallback = null;
+		this._logger = null;
 	}
 
 	enable() {
-		logger.log("Extension enabled");
+		this._logger = this.getLogger();
+		this._logger.log("Extension enabled");
 
-		this.configManager = new ConfigManager(this.getSettings());
+		this.configManager = new ConfigManager(this.getSettings(), this._logger);
 		this.keybindManager = new KeybindManager(
 			this.getSettings(),
 			this.configManager,
+			this._logger,
 		);
 		this.keybindManager.enable();
 		this._configChangeCallback = (changeType) => {
-			logger.log(`Config changed: ${changeType}`);
+			this._logger.log(`Config changed: ${changeType}`);
 			this._onConfigChanged(changeType);
 		};
 		this.configManager.addConfigChangeListener(this._configChangeCallback);
 	}
 
 	disable() {
-		logger.log("Extension disabled");
+		if (this._logger) {
+			this._logger.log("Extension disabled");
+		}
 		if (this._configChangeCallback && this.configManager) {
 			this.configManager.removeConfigChangeListener(this._configChangeCallback);
 		}
@@ -48,6 +52,7 @@ export default class P7ShortcutsExtension extends Extension {
 			this.configManager = null;
 		}
 		this._configChangeCallback = null;
+		this._logger = null;
 	}
 
 	_onConfigChanged(changeType) {

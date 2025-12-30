@@ -31,10 +31,9 @@ function resolveWinOptsizeScales(config, workArea) {
 	return scales;
 }
 
-async function win_optsize(config) {
+async function win_optsize(config, logger) {
 	const { default: Meta } = await import("gi://Meta");
 	const Main = await import("resource:///org/gnome/shell/ui/main.js");
-	const { default: logger } = await import("./utils.js");
 
 	const win = global.display.get_focus_window();
 	if (!win) {
