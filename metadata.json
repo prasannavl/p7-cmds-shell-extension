@@ -1,6 +1,6 @@
 {
 	"name": "P7 Commands",
-	"description": "Sensible keyboard shortcuts",
+	"description": "Sensible commands and keyboard shortcuts",
 	"uuid": "p7-cmds@prasannavl.com",
 	"url": "https://github.com/prasannavl/p7-cmds-shell-extension",
 	"shell-version": ["48", "49"],
