@@ -6,6 +6,26 @@ import { COMMAND_DEFINITIONS, DEFAULT_WIN_OPTSIZE_CONFIG } from "./common.js";
 
 let winOptsizeCycleState = null;
 
+function getMaximizeState(metaWindow) {
+	const flags = metaWindow.get_maximize_flags?.() ?? 0;
+	const hFlag = Meta.MaximizeFlags.HORIZONTAL ?? 1;
+	const vFlag = Meta.MaximizeFlags.VERTICAL ?? 2;
+	const bothFlag = Meta.MaximizeFlags.BOTH ?? hFlag | vFlag;
+
+	let horizontal = (flags & hFlag) !== 0;
+	let vertical = (flags & vFlag) !== 0;
+
+	if (!flags) {
+		horizontal = !!metaWindow.maximized_horizontally;
+		vertical = !!metaWindow.maximized_vertically;
+	}
+
+	const any = horizontal || vertical;
+	const full = flags ? (flags & bothFlag) === bothFlag : horizontal && vertical;
+
+	return { any, full, horizontal, vertical };
+}
+
 function resolveWinOptsizeScales(config, workArea) {
 	const winConfig = config?.winOptsize ?? DEFAULT_WIN_OPTSIZE_CONFIG;
 	let scales =
@@ -39,7 +59,7 @@ function win_optsize(config) {
 		return;
 	}
 
-	if (win.get_maximized() !== Meta.MaximizeFlags.NONE) {
+	if (getMaximizeState(win).any) {
 		win.unmaximize(Meta.MaximizeFlags.BOTH);
 	}
 
