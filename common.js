@@ -47,3 +47,12 @@ export const DEFAULT_WIN_OPTSIZE_CONFIG = {
 export const DEFAULT_WIN_OPTSIZE_CONFIG_STRING = JSON.stringify(
 	DEFAULT_WIN_OPTSIZE_CONFIG,
 );
+
+export const COMMAND_DEFINITIONS = [
+	{
+		key: "cmd-win-optsize",
+		title: "Optimal size focused window",
+		description:
+			"Resize the focused window to a size based on the monitor work area and center it.",
+	},
+];

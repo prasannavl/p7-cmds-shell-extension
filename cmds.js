@@ -2,7 +2,7 @@
 
 import Meta from "gi://Meta";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
-import { DEFAULT_WIN_OPTSIZE_CONFIG } from "./common.js";
+import { COMMAND_DEFINITIONS, DEFAULT_WIN_OPTSIZE_CONFIG } from "./common.js";
 
 let winOptsizeCycleState = null;
 
@@ -94,12 +94,11 @@ function win_optsize(config) {
 	win.move_resize_frame(true, targetX, targetY, targetWidth, targetHeight);
 }
 
-export const COMMANDS = [
-	{
-		key: "cmd-win-optsize",
-		title: "Optimal size focused window",
-		description:
-			"Resize the focused window to a size based on the monitor work area and center it.",
-		handler: win_optsize,
-	},
-];
+const COMMAND_HANDLERS = {
+	"cmd-win-optsize": win_optsize,
+};
+
+export const COMMANDS = COMMAND_DEFINITIONS.map((command) => ({
+	...command,
+	handler: COMMAND_HANDLERS[command.key],
+}));

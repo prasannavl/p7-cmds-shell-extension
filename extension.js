@@ -12,7 +12,7 @@ export default class P7ShortcutsExtension extends Extension {
 
 	enable() {
 		this._logger.log("Extension enabled");
-		
+
 		this.keyBindManager = new KeyBindManager(this.getSettings(), this._logger);
 		this.keyBindManager.enable();
 	}

@@ -4,10 +4,10 @@ import Adw from "gi://Adw";
 import Gdk from "gi://Gdk";
 import Gtk from "gi://Gtk";
 import { ExtensionPreferences } from "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js";
-import { COMMANDS } from "./cmds.js";
 import {
 	ACTION_MODE_NAMES,
 	KEYBINDING_FLAG_NAMES,
+	COMMAND_DEFINITIONS,
 	DEFAULT_WIN_OPTSIZE_CONFIG,
 } from "./common.js";
 
@@ -188,6 +188,8 @@ function buildKeybindingGroup(settings, command, parent) {
 
 	return group;
 }
+
+const COMMANDS = COMMAND_DEFINITIONS;
 
 function parseWinOptsizeConfig(rawValue) {
 	const defaults = JSON.parse(JSON.stringify(DEFAULT_WIN_OPTSIZE_CONFIG));
