@@ -1,6 +1,8 @@
 // cmds.js
 
 import { DEFAULT_WIN_OPTSIZE_CONFIG } from "./common.js";
+import Meta from "gi://Meta";
+import * as Main from "resource:///org/gnome/shell/ui/main.js";
 
 let winOptsizeCycleState = null;
 
@@ -31,13 +33,9 @@ function resolveWinOptsizeScales(config, workArea) {
 	return scales;
 }
 
-async function win_optsize(config, logger) {
-	const { default: Meta } = await import("gi://Meta");
-	const Main = await import("resource:///org/gnome/shell/ui/main.js");
-
+function win_optsize(config) {
 	const win = global.display.get_focus_window();
 	if (!win) {
-		logger.warn("win_optsize: no focused window");
 		return;
 	}
 

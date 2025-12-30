@@ -1,7 +1,7 @@
 // extension.js
 
 import { ConfigManager } from "./config.js";
-import { KeybindManager } from "./keybindmanager.js";
+import { KeyBindManager } from "./keybindmanager.js";
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 
 export default class P7ShortcutsExtension extends Extension {
@@ -10,8 +10,8 @@ export default class P7ShortcutsExtension extends Extension {
 
 		/** @type {ConfigManager | null} */
 		this.configManager = null;
-		/** @type {KeybindManager | null} */
-		this.keybindManager = null;
+		/** @type {KeyBindManager | null} */
+		this.keyBindManager = null;
 		this._configChangeCallback = null;
 		this._logger = null;
 	}
@@ -21,16 +21,13 @@ export default class P7ShortcutsExtension extends Extension {
 		this._logger.log("Extension enabled");
 
 		this.configManager = new ConfigManager(this.getSettings(), this._logger);
-		this.keybindManager = new KeybindManager(
+		this.keyBindManager = new KeyBindManager(
 			this.getSettings(),
 			this.configManager,
 			this._logger,
 		);
-		this.keybindManager.enable();
-		this._configChangeCallback = (changeType) => {
-			this._logger.log(`Config changed: ${changeType}`);
-			this._onConfigChanged(changeType);
-		};
+		this.keyBindManager.enable();
+		this._configChangeCallback = (x) => this._onConfigChanged(x);
 		this.configManager.addConfigChangeListener(this._configChangeCallback);
 	}
 
@@ -42,9 +39,9 @@ export default class P7ShortcutsExtension extends Extension {
 			this.configManager.removeConfigChangeListener(this._configChangeCallback);
 		}
 
-		if (this.keybindManager) {
-			this.keybindManager.disable();
-			this.keybindManager = null;
+		if (this.keyBindManager) {
+			this.keyBindManager.disable();
+			this.keyBindManager = null;
 		}
 
 		if (this.configManager) {
@@ -56,8 +53,9 @@ export default class P7ShortcutsExtension extends Extension {
 	}
 
 	_onConfigChanged(changeType) {
-		if (changeType === "settings-changed" && this.keybindManager) {
-			this.keybindManager.reload();
+		this._logger.log(`Config changed: ${changeType}`);
+		if (changeType === "settings-changed" && this.keyBindManager) {
+			this.keyBindManager.reload();
 		}
 	}
 }

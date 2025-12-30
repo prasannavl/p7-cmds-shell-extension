@@ -15,7 +15,7 @@ const COMMON_KEYBINDING_SCHEMAS = [
 	"org.gnome.settings-daemon.plugins.media-keys",
 ];
 
-export class KeybindManager {
+export class KeyBindManager {
 	constructor(settings, configManager, logger) {
 		this._settings = settings;
 		this._configManager = configManager;
