@@ -29,11 +29,12 @@ export class ConfigManager {
 		this._configChangeCallbacks = new Set();
 
 		// Connect to settings changes
-		this._settingsConnections = [];
-		this._settingsConnections.push(
-			this._settings.connect("changed", (_settings, key) => {
+		this._settings.connectObject(
+			"changed",
+			(_settings, key) => {
 				this._onSettingChanged(key);
-			}),
+			},
+			this,
 		);
 
 		// Initialize config from gsettings or set defaults
@@ -192,15 +193,7 @@ export class ConfigManager {
 	}
 
 	destroy() {
-		// Disconnect settings signals
-		for (const connectionId of this._settingsConnections) {
-			try {
-				this._settings.disconnect(connectionId);
-			} catch (_error) {
-				// Signal might already be disconnected
-			}
-		}
-		this._settingsConnections = [];
+		this._settings.disconnectObject(this);
 		this._configChangeCallbacks.clear();
 	}
 }

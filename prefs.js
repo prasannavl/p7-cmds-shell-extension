@@ -53,24 +53,28 @@ function captureShortcut(parent, onDone) {
 	dialog.set_content(content);
 
 	const controller = new Gtk.EventControllerKey();
-	controller.connect("key-pressed", (_controller, keyval, _keycode, state) => {
-		if (keyval === Gdk.KEY_Escape) {
+	controller.connectObject(
+		"key-pressed",
+		(_controller, keyval, _keycode, state) => {
+			if (keyval === Gdk.KEY_Escape) {
+				dialog.close();
+				return Gdk.EVENT_STOP;
+			}
+
+			const mods = state & Gtk.accelerator_get_default_mod_mask();
+			if (!Gtk.accelerator_valid(keyval, mods)) {
+				return Gdk.EVENT_STOP;
+			}
+
+			const accel = Gtk.accelerator_name(keyval, mods);
+			if (accel) {
+				onDone(accel);
+			}
 			dialog.close();
 			return Gdk.EVENT_STOP;
-		}
-
-		const mods = state & Gtk.accelerator_get_default_mod_mask();
-		if (!Gtk.accelerator_valid(keyval, mods)) {
-			return Gdk.EVENT_STOP;
-		}
-
-		const accel = Gtk.accelerator_name(keyval, mods);
-		if (accel) {
-			onDone(accel);
-		}
-		dialog.close();
-		return Gdk.EVENT_STOP;
-	});
+		},
+		dialog,
+	);
 	dialog.add_controller(controller);
 	dialog.present();
 }
@@ -91,11 +95,15 @@ function buildEnumRow(settings, title, subtitle, values, key) {
 	const currentIndex = values.indexOf(current);
 	row.set_selected(currentIndex >= 0 ? currentIndex : 0);
 
-	row.connect("notify::selected", () => {
-		const selected = row.get_selected();
-		const value = values[selected] ?? values[0];
-		settings.set_string(key, value);
-	});
+	row.connectObject(
+		"notify::selected",
+		() => {
+			const selected = row.get_selected();
+			const value = values[selected] ?? values[0];
+			settings.set_string(key, value);
+		},
+		row,
+	);
 
 	return row;
 }
@@ -144,20 +152,28 @@ function buildKeybindingGroup(settings, command, parent) {
 				valign: Gtk.Align.CENTER,
 			});
 
-			setButton.connect("clicked", () => {
+			setButton.connectObject(
+				"clicked",
+				() => {
 				captureShortcut(parent, (accel) => {
 					const current = settings.get_strv(command.key) ?? [];
 					const updated = [...current];
 					updated[index] = accel;
 					settings.set_strv(command.key, uniqueBindings(updated));
 				});
-			});
+				},
+				group,
+			);
 
-			removeButton.connect("clicked", () => {
+			removeButton.connectObject(
+				"clicked",
+				() => {
 				const current = settings.get_strv(command.key) ?? [];
 				const updated = current.filter((_accel, i) => i !== index);
 				settings.set_strv(command.key, updated);
-			});
+				},
+				group,
+			);
 
 			row.add_suffix(shortcutLabel);
 			row.add_suffix(setButton);
@@ -172,19 +188,23 @@ function buildKeybindingGroup(settings, command, parent) {
 			label: "Add",
 			valign: Gtk.Align.CENTER,
 		});
-		addButton.connect("clicked", () => {
+		addButton.connectObject(
+			"clicked",
+			() => {
 			captureShortcut(parent, (accel) => {
 				const current = settings.get_strv(command.key) ?? [];
 				const updated = uniqueBindings([...current, accel]);
 				settings.set_strv(command.key, updated);
 			});
-		});
+			},
+			group,
+		);
 		addRow.add_suffix(addButton);
 		addRowWidget(addRow);
 	};
 
 	refresh();
-	settings.connect(`changed::${command.key}`, refresh);
+	settings.connectObject(`changed::${command.key}`, refresh, group);
 
 	return group;
 }
@@ -262,9 +282,13 @@ function buildSpinRow({ title, value, digits, min, max, step, onChange }) {
 		numeric: true,
 	});
 	spin.set_value(value ?? min);
-	spin.connect("value-changed", () => {
-		onChange(spin.get_value());
-	});
+	spin.connectObject(
+		"value-changed",
+		() => {
+			onChange(spin.get_value());
+		},
+		row,
+	);
 	row.add_suffix(spin);
 	return row;
 }
@@ -325,25 +349,37 @@ function buildScaleRow(scale, index, onChange, onRemove) {
 	controlBox.append(removeButton);
 	row.add_suffix(controlBox);
 
-	widthSpin.connect("value-changed", () => {
-		scale[0] = widthSpin.get_value();
-		onChange();
-	});
-	heightSpin.connect("value-changed", () => {
-		scale[1] = heightSpin.get_value();
-		onChange();
-	});
-	autoHeightToggle.connect("toggled", () => {
-		if (autoHeightToggle.get_active()) {
-			scale[1] = null;
-			heightSpin.set_sensitive(false);
-		} else {
+	widthSpin.connectObject(
+		"value-changed",
+		() => {
+			scale[0] = widthSpin.get_value();
+			onChange();
+		},
+		row,
+	);
+	heightSpin.connectObject(
+		"value-changed",
+		() => {
 			scale[1] = heightSpin.get_value();
-			heightSpin.set_sensitive(true);
-		}
-		onChange();
-	});
-	removeButton.connect("clicked", onRemove);
+			onChange();
+		},
+		row,
+	);
+	autoHeightToggle.connectObject(
+		"toggled",
+		() => {
+			if (autoHeightToggle.get_active()) {
+				scale[1] = null;
+				heightSpin.set_sensitive(false);
+			} else {
+				scale[1] = heightSpin.get_value();
+				heightSpin.set_sensitive(true);
+			}
+			onChange();
+		},
+		row,
+	);
+	removeButton.connectObject("clicked", onRemove, row);
 
 	return row;
 }
@@ -455,10 +491,14 @@ function buildWinOptsizeConfigGroup(settings) {
 			subtitle: "Invert width/height for portrait screens",
 			active: !!config.aspectBasedInversion,
 		});
-		aspectRow.connect("notify::active", () => {
-			config.aspectBasedInversion = aspectRow.get_active();
-			saveConfig();
-		});
+		aspectRow.connectObject(
+			"notify::active",
+			() => {
+				config.aspectBasedInversion = aspectRow.get_active();
+				saveConfig();
+			},
+			aspectRow,
+		);
 		addRow(aspectRow);
 
 		addRow(
@@ -500,16 +540,20 @@ function buildWinOptsizeConfigGroup(settings) {
 			title: "Add default scale",
 		});
 		const addDefaultScaleButton = new Gtk.Button({ label: "Add" });
-		addDefaultScaleButton.connect("clicked", () => {
-			const scale = [0.8, 0.8];
-			defaultScales.push(scale);
-			const row = addDefaultScaleRowWidget(scale);
-			removeRow(addDefaultScaleRow);
-			addRow(row);
-			addRow(addDefaultScaleRow);
-			updateDefaultScaleTitles();
-			saveConfig();
-		});
+		addDefaultScaleButton.connectObject(
+			"clicked",
+			() => {
+				const scale = [0.8, 0.8];
+				defaultScales.push(scale);
+				const row = addDefaultScaleRowWidget(scale);
+				removeRow(addDefaultScaleRow);
+				addRow(row);
+				addRow(addDefaultScaleRow);
+				updateDefaultScaleTitles();
+				saveConfig();
+			},
+			addDefaultScaleRow,
+		);
 		addDefaultScaleRow.add_suffix(addDefaultScaleButton);
 		defaultScales.forEach((scale, index) => {
 			if (!Array.isArray(scale)) {
@@ -534,11 +578,15 @@ function buildWinOptsizeConfigGroup(settings) {
 			});
 
 			const removeButton = new Gtk.Button({ label: "Remove" });
-			removeButton.connect("clicked", () => {
-				breakpoints.splice(index, 1);
-				saveConfig();
-				render();
-			});
+			removeButton.connectObject(
+				"clicked",
+				() => {
+					breakpoints.splice(index, 1);
+					saveConfig();
+					render();
+				},
+				expander,
+			);
 			expander.add_suffix(removeButton);
 
 			const maxWidthRow = buildSpinRow({
@@ -574,20 +622,24 @@ function buildWinOptsizeConfigGroup(settings) {
 				title: "Limit by max height",
 				active: hasMaxHeight,
 			});
-			maxHeightToggle.connect("notify::active", () => {
-				if (maxHeightToggle.get_active()) {
-					breakpoint.maxHeight = Math.round(
-						typeof breakpoint.maxHeight === "number"
-							? breakpoint.maxHeight
-							: 1080,
-					);
-					maxHeightRow.set_sensitive(true);
-				} else {
-					breakpoint.maxHeight = null;
-					maxHeightRow.set_sensitive(false);
-				}
-				saveConfig();
-			});
+			maxHeightToggle.connectObject(
+				"notify::active",
+				() => {
+					if (maxHeightToggle.get_active()) {
+						breakpoint.maxHeight = Math.round(
+							typeof breakpoint.maxHeight === "number"
+								? breakpoint.maxHeight
+								: 1080,
+						);
+						maxHeightRow.set_sensitive(true);
+					} else {
+						breakpoint.maxHeight = null;
+						maxHeightRow.set_sensitive(false);
+					}
+					saveConfig();
+				},
+				expander,
+			);
 
 			expander.add_row(maxHeightToggle);
 			expander.add_row(maxHeightRow);
@@ -631,19 +683,23 @@ function buildWinOptsizeConfigGroup(settings) {
 
 			const addScaleRow = new Adw.ActionRow({ title: "Add scale" });
 			const addScaleButton = new Gtk.Button({ label: "Add" });
-			addScaleButton.connect("clicked", () => {
-				const scale = [0.8, 0.8];
-				scales.push(scale);
-				const row = addScaleRowWidget(scale);
-				const parent = addScaleRow.get_parent();
-				if (parent && typeof parent.remove === "function") {
-					parent.remove(addScaleRow);
-				}
-				expander.add_row(row);
-				expander.add_row(addScaleRow);
-				updateScaleTitles();
-				saveConfig();
-			});
+			addScaleButton.connectObject(
+				"clicked",
+				() => {
+					const scale = [0.8, 0.8];
+					scales.push(scale);
+					const row = addScaleRowWidget(scale);
+					const parent = addScaleRow.get_parent();
+					if (parent && typeof parent.remove === "function") {
+						parent.remove(addScaleRow);
+					}
+					expander.add_row(row);
+					expander.add_row(addScaleRow);
+					updateScaleTitles();
+					saveConfig();
+				},
+				expander,
+			);
 			addScaleRow.add_suffix(addScaleButton);
 			expander.add_row(addScaleRow);
 
@@ -654,14 +710,18 @@ function buildWinOptsizeConfigGroup(settings) {
 			title: "Add breakpoint",
 		});
 		const addBreakpointButton = new Gtk.Button({ label: "Add" });
-		addBreakpointButton.connect("clicked", () => {
-			breakpoints.push({
-				maxWidth: 1920,
-				scales: [[0.8, 0.8]],
-			});
-			saveConfig();
-			render();
-		});
+		addBreakpointButton.connectObject(
+			"clicked",
+			() => {
+				breakpoints.push({
+					maxWidth: 1920,
+					scales: [[0.8, 0.8]],
+				});
+				saveConfig();
+				render();
+			},
+			addBreakpointRow,
+		);
 		addBreakpointRow.add_suffix(addBreakpointButton);
 		addRow(addBreakpointRow);
 
@@ -669,50 +729,70 @@ function buildWinOptsizeConfigGroup(settings) {
 			title: "Reset to defaults",
 		});
 		const resetButton = new Gtk.Button({ label: "Reset" });
-		resetButton.connect("clicked", () => {
-			const defaultValue = settings.get_default_value("win-optsize-config");
-			if (defaultValue) {
-				settings.set_value("win-optsize-config", defaultValue);
-			}
-		});
+		resetButton.connectObject(
+			"clicked",
+			() => {
+				const defaultValue = settings.get_default_value("win-optsize-config");
+				if (defaultValue) {
+					settings.set_value("win-optsize-config", defaultValue);
+				}
+			},
+			resetRow,
+		);
 		resetRow.add_suffix(resetButton);
 		addRow(resetRow);
 	};
 
 	render();
-	settings.connect("changed::win-optsize-config", () => {
-		if (settings.get_string("win-optsize-config") === lastSerialized) {
-			return;
-		}
-		render();
-	});
+	settings.connectObject(
+		"changed::win-optsize-config",
+		() => {
+			if (settings.get_string("win-optsize-config") === lastSerialized) {
+				return;
+			}
+			render();
+		},
+		configGroup,
+	);
 
-	jsonBuffer.connect("changed", () => {
-		if (settingJson) {
-			return;
-		}
-		jsonDirty = true;
-		applyButton.set_sensitive(true);
-		reloadButton.set_sensitive(true);
-		jsonErrorRow.set_visible(false);
-	});
+	jsonBuffer.connectObject(
+		"changed",
+		() => {
+			if (settingJson) {
+				return;
+			}
+			jsonDirty = true;
+			applyButton.set_sensitive(true);
+			reloadButton.set_sensitive(true);
+			jsonErrorRow.set_visible(false);
+		},
+		jsonGroup,
+	);
 
-	applyButton.connect("clicked", () => {
-		const result = parseWinOptsizeConfigStrict(getJsonText());
-		if (!result.ok) {
-			jsonErrorRow.set_subtitle(result.error);
-			jsonErrorRow.set_visible(true);
-			return;
-		}
-		const serialized = serializeConfig(result.value);
-		lastSerialized = serialized;
-		setJsonText(serialized);
-		settings.set_string("win-optsize-config", serialized);
-	});
+	applyButton.connectObject(
+		"clicked",
+		() => {
+			const result = parseWinOptsizeConfigStrict(getJsonText());
+			if (!result.ok) {
+				jsonErrorRow.set_subtitle(result.error);
+				jsonErrorRow.set_visible(true);
+				return;
+			}
+			const serialized = serializeConfig(result.value);
+			lastSerialized = serialized;
+			setJsonText(serialized);
+			settings.set_string("win-optsize-config", serialized);
+		},
+		jsonGroup,
+	);
 
-	reloadButton.connect("clicked", () => {
-		setJsonText(serializeConfig(config));
-	});
+	reloadButton.connectObject(
+		"clicked",
+		() => {
+			setJsonText(serializeConfig(config));
+		},
+		jsonGroup,
+	);
 
 	const jsonActionsRow = new Adw.ActionRow({
 		title: "JSON editor",
