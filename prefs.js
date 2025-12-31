@@ -8,7 +8,7 @@ import {
 	ACTION_MODE_NAMES,
 	KEYBINDING_FLAG_NAMES,
 	COMMAND_DEFINITIONS,
-	DEFAULT_WIN_OPTSIZE_CONFIG,
+	parseWinOptsizeConfig,
 } from "./common.js";
 
 function uniqueBindings(bindings) {
@@ -207,65 +207,6 @@ function buildKeybindingGroup(settings, command, parent) {
 	settings.connectObject(`changed::${command.key}`, refresh, group);
 
 	return group;
-}
-
-const COMMANDS = COMMAND_DEFINITIONS;
-
-function parseWinOptsizeConfig(rawValue) {
-	const defaults = JSON.parse(JSON.stringify(DEFAULT_WIN_OPTSIZE_CONFIG));
-	if (typeof rawValue !== "string") {
-		return defaults;
-	}
-	const trimmed = rawValue.trim();
-	if (!trimmed) {
-		return defaults;
-	}
-	try {
-		const parsed = JSON.parse(trimmed);
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			return defaults;
-		}
-		return normalizeWinOptsizeConfig(parsed);
-	} catch (_error) {
-		return defaults;
-	}
-}
-
-function parseWinOptsizeConfigStrict(rawValue) {
-	if (typeof rawValue !== "string") {
-		return { ok: false, error: "Expected a JSON string." };
-	}
-	const trimmed = rawValue.trim();
-	if (!trimmed) {
-		return { ok: false, error: "JSON is empty." };
-	}
-	try {
-		const parsed = JSON.parse(trimmed);
-		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			return { ok: false, error: "JSON must be an object." };
-		}
-		return { ok: true, value: normalizeWinOptsizeConfig(parsed) };
-	} catch (error) {
-		return { ok: false, error: error?.message ?? "Invalid JSON." };
-	}
-}
-
-function normalizeWinOptsizeConfig(rawConfig) {
-	const defaults = JSON.parse(JSON.stringify(DEFAULT_WIN_OPTSIZE_CONFIG));
-	const config =
-		rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
-			? rawConfig
-			: {};
-	if (!Array.isArray(config["default-scales"])) {
-		config["default-scales"] = defaults["default-scales"];
-	}
-	if (!Array.isArray(config.breakpoints)) {
-		config.breakpoints = defaults.breakpoints;
-	}
-	if (typeof config.aspectBasedInversion !== "boolean") {
-		config.aspectBasedInversion = defaults.aspectBasedInversion;
-	}
-	return config;
 }
 
 function buildSpinRow({ title, value, digits, min, max, step, onChange }) {
@@ -508,7 +449,7 @@ function buildWinOptsizeConfigGroup(settings) {
 			}),
 		);
 
-		const defaultScales = config["default-scales"];
+		const defaultScales = config.scales;
 		const defaultScaleRows = [];
 		const updateDefaultScaleTitles = () => {
 			defaultScaleRows.forEach((row, index) => {
@@ -772,7 +713,7 @@ function buildWinOptsizeConfigGroup(settings) {
 	applyButton.connectObject(
 		"clicked",
 		() => {
-			const result = parseWinOptsizeConfigStrict(getJsonText());
+			const result = parseWinOptsizeConfig(getJsonText(), { strict: true });
 			if (!result.ok) {
 				jsonErrorRow.set_subtitle(result.error);
 				jsonErrorRow.set_visible(true);
@@ -871,7 +812,7 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 		);
 		shortcutsPage.add(defaultsGroup);
 
-		for (const command of COMMANDS) {
+		for (const command of COMMAND_DEFINITIONS) {
 			shortcutsPage.add(buildKeybindingGroup(settings, command, window));
 		}
 

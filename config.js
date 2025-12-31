@@ -6,7 +6,7 @@ import { COMMANDS } from "./cmds.js";
 import {
 	ACTION_MODE_NAMES,
 	KEYBINDING_FLAG_NAMES,
-	DEFAULT_WIN_OPTSIZE_CONFIG,
+	parseWinOptsizeConfig,
 } from "./common.js";
 
 const KEYBINDING_KEYS = COMMANDS.map((command) => command.key);
@@ -38,7 +38,6 @@ export class ConfigManager {
 		);
 
 		// Initialize config from gsettings or set defaults
-		this.appConfigFallback = {};
 		this._init();
 		// Check for first run and save defaults if needed (after defaults are loaded)
 		this._ensureDefaultsSaved();
@@ -61,7 +60,7 @@ export class ConfigManager {
 			SHELL_ACTION_MODES,
 			Shell.ActionMode.NORMAL,
 		);
-		const winOptsize = this._parseWinOptsizeConfig(
+		const winOptsize = parseWinOptsizeConfig(
 			this._settings.get_string("win-optsize-config"),
 		);
 
@@ -102,18 +101,15 @@ export class ConfigManager {
 	}
 
 	_ensureDefaultsSaved() {
-		for (const key of KEYBINDING_KEYS) {
-			const userValue = this._settings.get_user_value(key);
-			if (!userValue) {
-				const defaultValue = this._settings.get_default_value(key);
-				if (defaultValue) {
-					this._settings.set_value(key, defaultValue);
-				}
-			}
+		const keys = [
+			...KEYBINDING_KEYS,
+			"keybinding-flags",
+			"keybinding-actionmode",
+			"win-optsize-config",
+		];
+		for (const key of keys) {
+			this._ensureDefaultSaved(key);
 		}
-		this._ensureDefaultSaved("keybinding-flags");
-		this._ensureDefaultSaved("keybinding-actionmode");
-		this._ensureDefaultSaved("win-optsize-config");
 		this._logger.log("Default configuration values saved to dconf");
 	}
 
@@ -141,25 +137,6 @@ export class ConfigManager {
 		}
 		const normalized = trimmed.toUpperCase();
 		return map[normalized] ?? fallback;
-	}
-
-	_parseWinOptsizeConfig(rawValue) {
-		if (typeof rawValue !== "string") {
-			return DEFAULT_WIN_OPTSIZE_CONFIG;
-		}
-		const trimmed = rawValue.trim();
-		if (!trimmed) {
-			return DEFAULT_WIN_OPTSIZE_CONFIG;
-		}
-		try {
-			const parsed = JSON.parse(trimmed);
-			if (!parsed || typeof parsed !== "object") {
-				return DEFAULT_WIN_OPTSIZE_CONFIG;
-			}
-			return parsed;
-		} catch (_error) {
-			return DEFAULT_WIN_OPTSIZE_CONFIG;
-		}
 	}
 
 	// --- GSettings change handling -----------------------------------------

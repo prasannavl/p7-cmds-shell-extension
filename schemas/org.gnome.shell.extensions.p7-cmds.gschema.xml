@@ -7,7 +7,7 @@
       <description>Resize the focused window to a size based on the monitor work area and center it.</description>
     </key>
     <key name="win-optsize-config" type="s">
-      <default>"{\"default-scales\":[[0.8,null],[0.7,0.8],[0.6,0.8]],\"breakpoints\":[{\"maxWidth\":1920,\"scales\":[[0.8,null]]},{\"maxWidth\":2560,\"scales\":[[0.8,0.8],[0.7,0.8]]}]}"</default>
+      <default>"{\"scales\":[[0.8,null],[0.7,0.8],[0.6,0.8]],\"breakpoints\":[{\"maxWidth\":1920,\"scales\":[[0.8,null]]},{\"maxWidth\":2560,\"scales\":[[0.8,0.8],[0.7,0.8]]}]}"</default>
       <summary>Win optsize config</summary>
       <description>JSON config for win_optsize breakpoints and scales.</description>
     </key>

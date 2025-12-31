@@ -24,7 +24,7 @@ export const ACTION_MODE_NAMES = [
 ];
 
 export const DEFAULT_WIN_OPTSIZE_CONFIG = {
-	"default-scales": [
+	scales: [
 		[0.8, null],
 		[0.7, 0.8],
 		[0.6, 0.8],
@@ -44,9 +44,54 @@ export const DEFAULT_WIN_OPTSIZE_CONFIG = {
 	],
 };
 
-export const DEFAULT_WIN_OPTSIZE_CONFIG_STRING = JSON.stringify(
-	DEFAULT_WIN_OPTSIZE_CONFIG,
-);
+export function cloneWinOptsizeConfig() {
+	return structuredClone(DEFAULT_WIN_OPTSIZE_CONFIG);
+}
+
+export function normalizeWinOptsizeConfig(rawConfig) {
+	const defaults = cloneWinOptsizeConfig();
+	const config =
+		rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
+			? rawConfig
+			: {};
+	if (!Array.isArray(config.scales)) {
+		config.scales = defaults.scales;
+	}
+	if (!Array.isArray(config.breakpoints)) {
+		config.breakpoints = defaults.breakpoints;
+	}
+	if (typeof config.aspectBasedInversion !== "boolean") {
+		config.aspectBasedInversion = defaults.aspectBasedInversion;
+	}
+	return config;
+}
+
+export function parseWinOptsizeConfig(rawValue, options = {}) {
+	const strict = options?.strict === true;
+	const defaults = cloneWinOptsizeConfig();
+	if (typeof rawValue !== "string") {
+		return strict
+			? { ok: false, error: "Expected a JSON string." }
+			: defaults;
+	}
+	const trimmed = rawValue.trim();
+	if (!trimmed) {
+		return strict ? { ok: false, error: "JSON is empty." } : defaults;
+	}
+	try {
+		const parsed = JSON.parse(trimmed);
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+			return strict ? { ok: false, error: "JSON must be an object." } : defaults;
+		}
+		const normalized = normalizeWinOptsizeConfig(parsed);
+		return strict ? { ok: true, value: normalized } : normalized;
+	} catch (_error) {
+		if (strict) {
+			return { ok: false, error: _error?.message ?? "Invalid JSON." };
+		}
+		return defaults;
+	}
+}
 
 export const COMMAND_DEFINITIONS = [
 	{

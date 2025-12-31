@@ -50,7 +50,7 @@ Example (defaults):
 
 ```json
 {
-  "default-scales": [
+  "scales": [
     [0.8, null],
     [0.7, 0.8],
     [0.6, 0.8]
@@ -73,7 +73,7 @@ Example (defaults):
 
 Notes:
 
-- `default-scales` applies when no breakpoint matches.
+- `scales` applies when no breakpoint matches.
 - Each scale is `[widthScale, heightScale]`. Use `null` for auto height based on
   the monitor aspect ratio.
 - Optional `aspectBasedInversion: true` will swap width/height scales on

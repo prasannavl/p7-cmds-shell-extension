@@ -28,8 +28,7 @@ function getMaximizeState(metaWindow) {
 
 function resolveWinOptsizeScales(config, workArea) {
 	const winConfig = config?.winOptsize ?? DEFAULT_WIN_OPTSIZE_CONFIG;
-	let scales =
-		winConfig["default-scales"] ?? DEFAULT_WIN_OPTSIZE_CONFIG["default-scales"];
+	let scales = winConfig.scales ?? DEFAULT_WIN_OPTSIZE_CONFIG.scales;
 	if (Array.isArray(winConfig.breakpoints)) {
 		for (const breakpoint of winConfig.breakpoints) {
 			if (!breakpoint || typeof breakpoint.maxWidth !== "number") {
@@ -48,7 +47,7 @@ function resolveWinOptsizeScales(config, workArea) {
 		}
 	}
 	if (!Array.isArray(scales) || scales.length === 0) {
-		scales = DEFAULT_WIN_OPTSIZE_CONFIG["default-scales"];
+		scales = DEFAULT_WIN_OPTSIZE_CONFIG.scales;
 	}
 	return scales;
 }
