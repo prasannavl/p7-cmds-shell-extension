@@ -303,20 +303,13 @@ function buildScaleRow(scale, index, onChange, onRemove) {
 }
 
 function buildWinOptsizeConfigGroup(settings, signals) {
-	const configGroup = new Adw.PreferencesGroup({
-		title: "Config",
-		description:
-			"Configure breakpoints, scales, and aspect-based inversion. Auto keeps aspect height.",
-	});
+	const configGroup = new Adw.PreferencesGroup();
 
 	const rows = [];
 	let lastSerialized = null;
 	let jsonDirty = false;
 	let settingJson = false;
-	const jsonGroup = new Adw.PreferencesGroup({
-		title: "Config JSON",
-		description: "Edit the JSON and apply it to update the config.",
-	});
+	const jsonGroup = new Adw.PreferencesGroup();
 	const jsonErrorRow = new Adw.ActionRow({
 		title: "JSON error",
 		subtitle: "",
