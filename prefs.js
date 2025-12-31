@@ -155,12 +155,12 @@ function buildKeybindingGroup(settings, command, parent) {
 			setButton.connectObject(
 				"clicked",
 				() => {
-				captureShortcut(parent, (accel) => {
-					const current = settings.get_strv(command.key) ?? [];
-					const updated = [...current];
-					updated[index] = accel;
-					settings.set_strv(command.key, uniqueBindings(updated));
-				});
+					captureShortcut(parent, (accel) => {
+						const current = settings.get_strv(command.key) ?? [];
+						const updated = [...current];
+						updated[index] = accel;
+						settings.set_strv(command.key, uniqueBindings(updated));
+					});
 				},
 				group,
 			);
@@ -168,9 +168,9 @@ function buildKeybindingGroup(settings, command, parent) {
 			removeButton.connectObject(
 				"clicked",
 				() => {
-				const current = settings.get_strv(command.key) ?? [];
-				const updated = current.filter((_accel, i) => i !== index);
-				settings.set_strv(command.key, updated);
+					const current = settings.get_strv(command.key) ?? [];
+					const updated = current.filter((_accel, i) => i !== index);
+					settings.set_strv(command.key, updated);
 				},
 				group,
 			);
@@ -191,11 +191,11 @@ function buildKeybindingGroup(settings, command, parent) {
 		addButton.connectObject(
 			"clicked",
 			() => {
-			captureShortcut(parent, (accel) => {
-				const current = settings.get_strv(command.key) ?? [];
-				const updated = uniqueBindings([...current, accel]);
-				settings.set_strv(command.key, updated);
-			});
+				captureShortcut(parent, (accel) => {
+					const current = settings.get_strv(command.key) ?? [];
+					const updated = uniqueBindings([...current, accel]);
+					settings.set_strv(command.key, updated);
+				});
 			},
 			group,
 		);
