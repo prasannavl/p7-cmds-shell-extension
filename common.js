@@ -70,9 +70,7 @@ export function parseWinOptsizeConfig(rawValue, options = {}) {
 	const strict = options?.strict === true;
 	const defaults = cloneWinOptsizeConfig();
 	if (typeof rawValue !== "string") {
-		return strict
-			? { ok: false, error: "Expected a JSON string." }
-			: defaults;
+		return strict ? { ok: false, error: "Expected a JSON string." } : defaults;
 	}
 	const trimmed = rawValue.trim();
 	if (!trimmed) {
@@ -81,7 +79,9 @@ export function parseWinOptsizeConfig(rawValue, options = {}) {
 	try {
 		const parsed = JSON.parse(trimmed);
 		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-			return strict ? { ok: false, error: "JSON must be an object." } : defaults;
+			return strict
+				? { ok: false, error: "JSON must be an object." }
+				: defaults;
 		}
 		const normalized = normalizeWinOptsizeConfig(parsed);
 		return strict ? { ok: true, value: normalized } : normalized;
