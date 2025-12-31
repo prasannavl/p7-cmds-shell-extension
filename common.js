@@ -45,7 +45,7 @@ export const DEFAULT_WIN_OPTSIZE_CONFIG = {
 };
 
 export function cloneWinOptsizeConfig() {
-	return structuredClone(DEFAULT_WIN_OPTSIZE_CONFIG);
+	return JSON.parse(JSON.stringify(DEFAULT_WIN_OPTSIZE_CONFIG));
 }
 
 export function normalizeWinOptsizeConfig(rawConfig) {

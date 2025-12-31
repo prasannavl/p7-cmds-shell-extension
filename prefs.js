@@ -53,7 +53,7 @@ function captureShortcut(parent, onDone) {
 	dialog.set_content(content);
 
 	const controller = new Gtk.EventControllerKey();
-	controller.connectObject(
+	const controllerId = controller.connect(
 		"key-pressed",
 		(_controller, keyval, _keycode, state) => {
 			if (keyval === Gdk.KEY_Escape) {
@@ -73,8 +73,11 @@ function captureShortcut(parent, onDone) {
 			dialog.close();
 			return Gdk.EVENT_STOP;
 		},
-		dialog,
 	);
+	dialog.connect("close-request", () => {
+		controller.disconnect(controllerId);
+		return false;
+	});
 	dialog.add_controller(controller);
 	dialog.present();
 }
@@ -95,20 +98,19 @@ function buildEnumRow(settings, title, subtitle, values, key) {
 	const currentIndex = values.indexOf(current);
 	row.set_selected(currentIndex >= 0 ? currentIndex : 0);
 
-	row.connectObject(
+	row.connect(
 		"notify::selected",
 		() => {
 			const selected = row.get_selected();
 			const value = values[selected] ?? values[0];
 			settings.set_string(key, value);
 		},
-		row,
 	);
 
 	return row;
 }
 
-function buildKeybindingGroup(settings, command, parent) {
+function buildKeybindingGroup(settings, command, parent, signals) {
 	const group = new Adw.PreferencesGroup({
 		title: command.title,
 		description: command.description,
@@ -152,7 +154,7 @@ function buildKeybindingGroup(settings, command, parent) {
 				valign: Gtk.Align.CENTER,
 			});
 
-			setButton.connectObject(
+			setButton.connect(
 				"clicked",
 				() => {
 					captureShortcut(parent, (accel) => {
@@ -162,17 +164,15 @@ function buildKeybindingGroup(settings, command, parent) {
 						settings.set_strv(command.key, uniqueBindings(updated));
 					});
 				},
-				group,
 			);
 
-			removeButton.connectObject(
+			removeButton.connect(
 				"clicked",
 				() => {
 					const current = settings.get_strv(command.key) ?? [];
 					const updated = current.filter((_accel, i) => i !== index);
 					settings.set_strv(command.key, updated);
 				},
-				group,
 			);
 
 			row.add_suffix(shortcutLabel);
@@ -188,7 +188,7 @@ function buildKeybindingGroup(settings, command, parent) {
 			label: "Add",
 			valign: Gtk.Align.CENTER,
 		});
-		addButton.connectObject(
+		addButton.connect(
 			"clicked",
 			() => {
 				captureShortcut(parent, (accel) => {
@@ -197,14 +197,19 @@ function buildKeybindingGroup(settings, command, parent) {
 					settings.set_strv(command.key, updated);
 				});
 			},
-			group,
 		);
 		addRow.add_suffix(addButton);
 		addRowWidget(addRow);
 	};
 
 	refresh();
-	settings.connectObject(`changed::${command.key}`, refresh, group);
+	const settingsChangedId = settings.connect(
+		`changed::${command.key}`,
+		refresh,
+	);
+	if (signals) {
+		signals.push([settings, settingsChangedId]);
+	}
 
 	return group;
 }
@@ -223,12 +228,11 @@ function buildSpinRow({ title, value, digits, min, max, step, onChange }) {
 		numeric: true,
 	});
 	spin.set_value(value ?? min);
-	spin.connectObject(
+	spin.connect(
 		"value-changed",
 		() => {
 			onChange(spin.get_value());
 		},
-		row,
 	);
 	row.add_suffix(spin);
 	return row;
@@ -290,23 +294,21 @@ function buildScaleRow(scale, index, onChange, onRemove) {
 	controlBox.append(removeButton);
 	row.add_suffix(controlBox);
 
-	widthSpin.connectObject(
+	widthSpin.connect(
 		"value-changed",
 		() => {
 			scale[0] = widthSpin.get_value();
 			onChange();
 		},
-		row,
 	);
-	heightSpin.connectObject(
+	heightSpin.connect(
 		"value-changed",
 		() => {
 			scale[1] = heightSpin.get_value();
 			onChange();
 		},
-		row,
 	);
-	autoHeightToggle.connectObject(
+	autoHeightToggle.connect(
 		"toggled",
 		() => {
 			if (autoHeightToggle.get_active()) {
@@ -318,14 +320,13 @@ function buildScaleRow(scale, index, onChange, onRemove) {
 			}
 			onChange();
 		},
-		row,
 	);
-	removeButton.connectObject("clicked", onRemove, row);
+	removeButton.connect("clicked", onRemove);
 
 	return row;
 }
 
-function buildWinOptsizeConfigGroup(settings) {
+function buildWinOptsizeConfigGroup(settings, signals) {
 	const configGroup = new Adw.PreferencesGroup({
 		title: "Config",
 		description:
@@ -432,13 +433,12 @@ function buildWinOptsizeConfigGroup(settings) {
 			subtitle: "Invert width/height for portrait screens",
 			active: !!config.aspectBasedInversion,
 		});
-		aspectRow.connectObject(
+		aspectRow.connect(
 			"notify::active",
 			() => {
 				config.aspectBasedInversion = aspectRow.get_active();
 				saveConfig();
 			},
-			aspectRow,
 		);
 		addRow(aspectRow);
 
@@ -481,7 +481,7 @@ function buildWinOptsizeConfigGroup(settings) {
 			title: "Add default scale",
 		});
 		const addDefaultScaleButton = new Gtk.Button({ label: "Add" });
-		addDefaultScaleButton.connectObject(
+		addDefaultScaleButton.connect(
 			"clicked",
 			() => {
 				const scale = [0.8, 0.8];
@@ -493,7 +493,6 @@ function buildWinOptsizeConfigGroup(settings) {
 				updateDefaultScaleTitles();
 				saveConfig();
 			},
-			addDefaultScaleRow,
 		);
 		addDefaultScaleRow.add_suffix(addDefaultScaleButton);
 		defaultScales.forEach((scale, index) => {
@@ -519,14 +518,13 @@ function buildWinOptsizeConfigGroup(settings) {
 			});
 
 			const removeButton = new Gtk.Button({ label: "Remove" });
-			removeButton.connectObject(
+			removeButton.connect(
 				"clicked",
 				() => {
 					breakpoints.splice(index, 1);
 					saveConfig();
 					render();
 				},
-				expander,
 			);
 			expander.add_suffix(removeButton);
 
@@ -563,7 +561,7 @@ function buildWinOptsizeConfigGroup(settings) {
 				title: "Limit by max height",
 				active: hasMaxHeight,
 			});
-			maxHeightToggle.connectObject(
+			maxHeightToggle.connect(
 				"notify::active",
 				() => {
 					if (maxHeightToggle.get_active()) {
@@ -579,7 +577,6 @@ function buildWinOptsizeConfigGroup(settings) {
 					}
 					saveConfig();
 				},
-				expander,
 			);
 
 			expander.add_row(maxHeightToggle);
@@ -624,7 +621,7 @@ function buildWinOptsizeConfigGroup(settings) {
 
 			const addScaleRow = new Adw.ActionRow({ title: "Add scale" });
 			const addScaleButton = new Gtk.Button({ label: "Add" });
-			addScaleButton.connectObject(
+			addScaleButton.connect(
 				"clicked",
 				() => {
 					const scale = [0.8, 0.8];
@@ -639,7 +636,6 @@ function buildWinOptsizeConfigGroup(settings) {
 					updateScaleTitles();
 					saveConfig();
 				},
-				expander,
 			);
 			addScaleRow.add_suffix(addScaleButton);
 			expander.add_row(addScaleRow);
@@ -651,7 +647,7 @@ function buildWinOptsizeConfigGroup(settings) {
 			title: "Add breakpoint",
 		});
 		const addBreakpointButton = new Gtk.Button({ label: "Add" });
-		addBreakpointButton.connectObject(
+		addBreakpointButton.connect(
 			"clicked",
 			() => {
 				breakpoints.push({
@@ -661,7 +657,6 @@ function buildWinOptsizeConfigGroup(settings) {
 				saveConfig();
 				render();
 			},
-			addBreakpointRow,
 		);
 		addBreakpointRow.add_suffix(addBreakpointButton);
 		addRow(addBreakpointRow);
@@ -670,7 +665,7 @@ function buildWinOptsizeConfigGroup(settings) {
 			title: "Reset to defaults",
 		});
 		const resetButton = new Gtk.Button({ label: "Reset" });
-		resetButton.connectObject(
+		resetButton.connect(
 			"clicked",
 			() => {
 				const defaultValue = settings.get_default_value("win-optsize-config");
@@ -678,14 +673,13 @@ function buildWinOptsizeConfigGroup(settings) {
 					settings.set_value("win-optsize-config", defaultValue);
 				}
 			},
-			resetRow,
 		);
 		resetRow.add_suffix(resetButton);
 		addRow(resetRow);
 	};
 
 	render();
-	settings.connectObject(
+	const configChangedId = settings.connect(
 		"changed::win-optsize-config",
 		() => {
 			if (settings.get_string("win-optsize-config") === lastSerialized) {
@@ -693,10 +687,12 @@ function buildWinOptsizeConfigGroup(settings) {
 			}
 			render();
 		},
-		configGroup,
 	);
+	if (signals) {
+		signals.push([settings, configChangedId]);
+	}
 
-	jsonBuffer.connectObject(
+	jsonBuffer.connect(
 		"changed",
 		() => {
 			if (settingJson) {
@@ -707,10 +703,9 @@ function buildWinOptsizeConfigGroup(settings) {
 			reloadButton.set_sensitive(true);
 			jsonErrorRow.set_visible(false);
 		},
-		jsonGroup,
 	);
 
-	applyButton.connectObject(
+	applyButton.connect(
 		"clicked",
 		() => {
 			const result = parseWinOptsizeConfig(getJsonText(), { strict: true });
@@ -724,15 +719,13 @@ function buildWinOptsizeConfigGroup(settings) {
 			setJsonText(serialized);
 			settings.set_string("win-optsize-config", serialized);
 		},
-		jsonGroup,
 	);
 
-	reloadButton.connectObject(
+	reloadButton.connect(
 		"clicked",
 		() => {
 			setJsonText(serializeConfig(config));
 		},
-		jsonGroup,
 	);
 
 	const jsonActionsRow = new Adw.ActionRow({
@@ -781,6 +774,14 @@ function buildWinOptsizeConfigGroup(settings) {
 export default class P7ShortcutsPreferences extends ExtensionPreferences {
 	fillPreferencesWindow(window) {
 		const settings = this.getSettings();
+		const signals = [];
+		window.connect("close-request", () => {
+			for (const [object, id] of signals) {
+				object.disconnect(id);
+			}
+			signals.length = 0;
+			return false;
+		});
 		window.set_default_size(760, 640);
 
 		const shortcutsPage = new Adw.PreferencesPage({
@@ -813,7 +814,9 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 		shortcutsPage.add(defaultsGroup);
 
 		for (const command of COMMAND_DEFINITIONS) {
-			shortcutsPage.add(buildKeybindingGroup(settings, command, window));
+			shortcutsPage.add(
+				buildKeybindingGroup(settings, command, window, signals),
+			);
 		}
 
 		const optsizePage = new Adw.PreferencesPage({
@@ -821,6 +824,6 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 			icon_name: "window-maximize-symbolic",
 		});
 		window.add(optsizePage);
-		optsizePage.add(buildWinOptsizeConfigGroup(settings));
+		optsizePage.add(buildWinOptsizeConfigGroup(settings, signals));
 	}
 }
