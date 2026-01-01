@@ -107,7 +107,7 @@ function buildEnumRow(settings, title, subtitle, values, key) {
 	return row;
 }
 
-function buildKeybindingGroup(settings, command, parent, signals) {
+function buildKeybindingGroup(settings, command, registerSettingsChange, parent) {
 	const group = new Adw.PreferencesGroup({
 		title: command.title,
 		description: command.description,
@@ -191,13 +191,7 @@ function buildKeybindingGroup(settings, command, parent, signals) {
 	};
 
 	refresh();
-	const settingsChangedId = settings.connect(
-		`changed::${command.key}`,
-		refresh,
-	);
-	if (signals) {
-		signals.push([settings, settingsChangedId]);
-	}
+	registerSettingsChange(command.key, refresh);
 
 	return group;
 }
@@ -302,7 +296,7 @@ function buildScaleRow(scale, index, onChange, onRemove) {
 	return row;
 }
 
-function buildWinOptsizeConfigGroup(settings, signals) {
+function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 	const configGroup = new Adw.PreferencesGroup();
 
 	const rows = [];
@@ -627,18 +621,12 @@ function buildWinOptsizeConfigGroup(settings, signals) {
 	};
 
 	render();
-	const configChangedId = settings.connect(
-		"changed::win-optsize-config",
-		() => {
-			if (settings.get_string("win-optsize-config") === lastSerialized) {
-				return;
-			}
-			render();
-		},
-	);
-	if (signals) {
-		signals.push([settings, configChangedId]);
-	}
+	registerSettingsChange("win-optsize-config", () => {
+		if (settings.get_string("win-optsize-config") === lastSerialized) {
+			return;
+		}
+		render();
+	});
 
 	jsonBuffer.connect("changed", () => {
 		if (settingJson) {
@@ -713,14 +701,9 @@ function buildWinOptsizeConfigGroup(settings, signals) {
 export default class P7ShortcutsPreferences extends ExtensionPreferences {
 	fillPreferencesWindow(window) {
 		const settings = this.getSettings();
-		const signals = [];
-		window.connect("close-request", () => {
-			for (const [object, id] of signals) {
-				object.disconnect(id);
-			}
-			signals.length = 0;
-			return false;
-		});
+		const registerSettingsChange = (key, handler) => {
+			settings.connectObject(`changed::${key}`, handler, window);
+		};
 		window.set_default_size(760, 640);
 
 		const shortcutsPage = new Adw.PreferencesPage({
@@ -754,7 +737,12 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 
 		for (const command of COMMAND_DEFINITIONS) {
 			shortcutsPage.add(
-				buildKeybindingGroup(settings, command, window, signals),
+				buildKeybindingGroup(
+					settings,
+					command,
+					registerSettingsChange,
+					window,
+				),
 			);
 		}
 
@@ -763,6 +751,8 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 			icon_name: "window-maximize-symbolic",
 		});
 		window.add(optsizePage);
-		optsizePage.add(buildWinOptsizeConfigGroup(settings, signals));
+		optsizePage.add(
+			buildWinOptsizeConfigGroup(settings, registerSettingsChange, window),
+		);
 	}
 }
