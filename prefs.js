@@ -107,7 +107,12 @@ function buildEnumRow(settings, title, subtitle, values, key) {
 	return row;
 }
 
-function buildKeybindingGroup(settings, command, registerSettingsChange, parent) {
+function buildKeybindingGroup(
+	settings,
+	command,
+	registerSettingsChange,
+	parent,
+) {
 	const group = new Adw.PreferencesGroup({
 		title: command.title,
 		description: command.description,
@@ -737,12 +742,7 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 
 		for (const command of COMMAND_DEFINITIONS) {
 			shortcutsPage.add(
-				buildKeybindingGroup(
-					settings,
-					command,
-					registerSettingsChange,
-					window,
-				),
+				buildKeybindingGroup(settings, command, registerSettingsChange, window),
 			);
 		}
 
