@@ -107,12 +107,7 @@ function buildEnumRow(settings, title, subtitle, values, key) {
 	return row;
 }
 
-function buildKeybindingGroup(
-	settings,
-	command,
-	registerSettingsChange,
-	parent,
-) {
+function buildKeybindingGroup(settings, command, registerSettingsChange, parent) {
 	const group = new Adw.PreferencesGroup({
 		title: command.title,
 		description: command.description,
@@ -706,9 +701,18 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 export default class P7ShortcutsPreferences extends ExtensionPreferences {
 	fillPreferencesWindow(window) {
 		const settings = this.getSettings();
+		let signals = [];
 		const registerSettingsChange = (key, handler) => {
-			settings.connectObject(`changed::${key}`, handler, window);
+			const id = settings.connect(`changed::${key}`, handler);
+			signals.push([settings, id]);
 		};
+		window.connect("close-request", () => {
+			for (const [object, id] of signals) {
+				object.disconnect(id);
+			}
+			signals = [];
+			return false;
+		});
 		window.set_default_size(760, 640);
 
 		const shortcutsPage = new Adw.PreferencesPage({
@@ -742,7 +746,12 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 
 		for (const command of COMMAND_DEFINITIONS) {
 			shortcutsPage.add(
-				buildKeybindingGroup(settings, command, registerSettingsChange, window),
+				buildKeybindingGroup(
+					settings,
+					command,
+					registerSettingsChange,
+					window,
+				),
 			);
 		}
 
