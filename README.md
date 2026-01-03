@@ -3,7 +3,8 @@
 Sensible keyboard shortcuts with a small set of Mutter-aware commands. The
 extension ships a preferences UI for binding keys and tuning behavior.
 
-Compatibility: GNOME Shell 48 and 49.
+Compatibility: GNOME Shell 48+.
+Best effort compatibility: GNOME Shell 45+.
 
 ## Features
 
