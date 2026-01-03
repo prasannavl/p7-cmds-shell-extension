@@ -10,6 +10,14 @@ export default class P7ShortcutsExtension extends Extension {
 		this.keyBindManager = null;
 	}
 
+	getLogger() {
+		if (typeof super.getLogger === "function") {
+			return super.getLogger();
+		}
+		// For compatibility with gnome 45
+		return console;
+	}
+
 	enable() {
 		this._logger = this.getLogger();
 		this._logger.log("Extension enabled");

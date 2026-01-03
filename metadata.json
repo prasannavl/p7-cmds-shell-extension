@@ -4,6 +4,8 @@
 	"uuid": "p7-cmds@prasannavl.com",
 	"url": "https://github.com/prasannavl/p7-cmds-shell-extension",
 	"shell-version": [
+		"45",
+		"46",
 		"47",
 		"48",
 		"49"
