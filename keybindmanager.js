@@ -26,33 +26,21 @@ export class KeyBindManager {
 		this._conflictSettings = COMMON_KEYBINDING_SCHEMAS.map(
 			(schema) => new Gio.Settings({ schema }),
 		);
-		this._enabled = false;
 	}
 
 	enable() {
-		if (this._enabled) {
-			return;
-		}
-		this._enabled = true;
 		this._configManager.addConfigChangeListener(this._configChangeCallback);
 		this._applyBindings();
 	}
 
 	disable() {
-		if (!this._enabled) {
-			return;
-		}
 		this._removeKeybindings();
 		this._restoreConflicts();
 		this._configManager.removeConfigChangeListener(this._configChangeCallback);
 		this._configManager.destroy();
-		this._enabled = false;
 	}
 
 	reload() {
-		if (!this._enabled) {
-			return;
-		}
 		this._removeKeybindings();
 		this._restoreConflicts();
 		this._applyBindings();
@@ -88,7 +76,7 @@ export class KeyBindManager {
 			const handler = (...args) => {
 				this._logger.log(`Called keybind ${command.key}`);
 				const currentConfig = this._configManager.getConfig();
-				return command.handler(currentConfig, this._logger, ...args);
+				return command.handler(command.key, currentConfig, this._logger, ...args);
 			};
 
 			Main.wm.addKeybinding(

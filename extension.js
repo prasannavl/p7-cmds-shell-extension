@@ -2,6 +2,8 @@
 
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 import { KeyBindManager } from "./keybindmanager.js";
+import { STATE_MAP } from "./cmds.js";
+
 export default class P7ShortcutsExtension extends Extension {
 	constructor(metadata) {
 		super(metadata);
@@ -25,6 +27,7 @@ export default class P7ShortcutsExtension extends Extension {
 			this.keyBindManager.disable();
 			this.keyBindManager = null;
 		}
+		STATE_MAP.clear();
 		this._logger = null;
 	}
 }

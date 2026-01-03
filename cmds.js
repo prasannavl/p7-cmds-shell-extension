@@ -4,7 +4,7 @@ import Meta from "gi://Meta";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { COMMAND_DEFINITIONS, DEFAULT_WIN_OPTSIZE_CONFIG } from "./common.js";
 
-let winOptsizeCycleState = null;
+export const STATE_MAP = new Map();
 
 const MaximizeFlags = Meta.MaximizeFlags ?? {
 	HORIZONTAL: 1,
@@ -57,7 +57,7 @@ function resolveWinOptsizeScales(config, workArea) {
 	return scales;
 }
 
-function win_optsize(config) {
+function win_optsize(cmdName, config, _logger) {
 	const win = global.display.get_focus_window
 		? global.display.get_focus_window()
 		: global.display.focus_window;
@@ -76,7 +76,7 @@ function win_optsize(config) {
 	const scales = resolveWinOptsizeScales(config, workArea);
 
 	const winId = win.get_id();
-	let cycleState = winOptsizeCycleState;
+	let cycleState = STATE_MAP.get(cmdName);
 	if (!cycleState || cycleState.winId !== winId) {
 		const frameRect = win.get_frame_rect();
 		cycleState = {
@@ -89,7 +89,7 @@ function win_optsize(config) {
 	const cycleLength = scales.length + 1;
 	const nextIndex = (cycleState.index + 1) % cycleLength;
 	cycleState.index = nextIndex;
-	winOptsizeCycleState = cycleState;
+	STATE_MAP.set(cmdName, cycleState);
 
 	let targetWidth;
 	let targetHeight;
