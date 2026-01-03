@@ -21,5 +21,10 @@
       <summary>Keybinding action mode</summary>
       <description>Shell.ActionMode name or numeric value used for extension keybindings.</description>
     </key>
+    <key name="override-conflicting-bindings" type="b">
+      <default>false</default>
+      <summary>Override conflicting keybindings</summary>
+      <description>When enabled, automatically removes conflicting keybindings from other schemas and restores them when the extension is disabled. When disabled, conflicting keybindings are skipped with a warning.</description>
+    </key>
   </schema>
 </schemalist>

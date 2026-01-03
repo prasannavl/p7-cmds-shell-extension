@@ -134,7 +134,7 @@ function buildKeybindingGroup(
 	const refresh = () => {
 		clearRows();
 
-		const bindings = settings.get_strv(command.key) ?? [];
+		const bindings = settings.get_strv(command.id) ?? [];
 
 		bindings.forEach((binding, index) => {
 			const row = new Adw.ActionRow({
@@ -158,17 +158,17 @@ function buildKeybindingGroup(
 
 			setButton.connect("clicked", () => {
 				captureShortcut(parent, (accel) => {
-					const current = settings.get_strv(command.key) ?? [];
+					const current = settings.get_strv(command.id) ?? [];
 					const updated = [...current];
 					updated[index] = accel;
-					settings.set_strv(command.key, uniqueBindings(updated));
+					settings.set_strv(command.id, uniqueBindings(updated));
 				});
 			});
 
 			removeButton.connect("clicked", () => {
-				const current = settings.get_strv(command.key) ?? [];
+				const current = settings.get_strv(command.id) ?? [];
 				const updated = current.filter((_accel, i) => i !== index);
-				settings.set_strv(command.key, updated);
+				settings.set_strv(command.id, updated);
 			});
 
 			row.add_suffix(shortcutLabel);
@@ -186,9 +186,9 @@ function buildKeybindingGroup(
 		});
 		addButton.connect("clicked", () => {
 			captureShortcut(parent, (accel) => {
-				const current = settings.get_strv(command.key) ?? [];
+				const current = settings.get_strv(command.id) ?? [];
 				const updated = uniqueBindings([...current, accel]);
-				settings.set_strv(command.key, updated);
+				settings.set_strv(command.id, updated);
 			});
 		});
 		addRow.add_suffix(addButton);
@@ -196,7 +196,7 @@ function buildKeybindingGroup(
 	};
 
 	refresh();
-	registerSettingsChange(command.key, refresh);
+	registerSettingsChange(command.id, refresh);
 
 	return group;
 }
@@ -747,21 +747,40 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 				"keybinding-actionmode",
 			),
 		);
+
+		const overrideRow = new Adw.SwitchRow({
+			title: "Override conflicting keybindings",
+			subtitle:
+				"Automatically remove conflicting keybindings from system/shell settings and restore on disable",
+		});
+		overrideRow.set_active(
+			settings.get_boolean("override-conflicting-bindings"),
+		);
+		overrideRow.connect("notify::active", () => {
+			settings.set_boolean(
+				"override-conflicting-bindings",
+				overrideRow.get_active(),
+			);
+		});
+		defaultsGroup.add(overrideRow);
+
 		shortcutsPage.add(defaultsGroup);
 
 		for (const command of COMMAND_DEFINITIONS) {
 			shortcutsPage.add(
 				buildKeybindingGroup(settings, command, registerSettingsChange, window),
 			);
-		}
 
-		const optsizePage = new Adw.PreferencesPage({
-			title: "Win optsize",
-			icon_name: "window-maximize-symbolic",
-		});
-		window.add(optsizePage);
-		optsizePage.add(
-			buildWinOptsizeConfigGroup(settings, registerSettingsChange, window),
-		);
+			if (command.id === "cmd-win-optsize") {
+				const optsizePage = new Adw.PreferencesPage({
+					title: command.title,
+					icon_name: command.icon,
+				});
+				window.add(optsizePage);
+				optsizePage.add(
+					buildWinOptsizeConfigGroup(settings, registerSettingsChange, window),
+				);
+			}
+		}
 	}
 }

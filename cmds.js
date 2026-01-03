@@ -126,5 +126,5 @@ const COMMAND_HANDLERS = {
 
 export const COMMANDS = COMMAND_DEFINITIONS.map((command) => ({
 	...command,
-	handler: COMMAND_HANDLERS[command.key],
+	handler: COMMAND_HANDLERS[command.id],
 }));

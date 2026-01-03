@@ -95,8 +95,9 @@ export function parseWinOptsizeConfig(rawValue, options = {}) {
 
 export const COMMAND_DEFINITIONS = [
 	{
-		key: "cmd-win-optsize",
-		title: "Optimal size focused window",
+		id: "cmd-win-optsize",
+		title: "cmd:win-optsize",
+		icon: "window-maximize-symbolic",
 		description:
 			"Resize the focused window to a size based on the monitor work area and center it.",
 	},

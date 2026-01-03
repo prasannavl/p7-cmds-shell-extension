@@ -9,7 +9,7 @@ import {
 	parseWinOptsizeConfig,
 } from "./common.js";
 
-const KEYBINDING_KEYS = COMMANDS.map((command) => command.key);
+const KEYBINDING_KEYS = COMMANDS.map((command) => command.id);
 const ACCELERATOR_PATTERN = /^(?:<[^>]+>)*[^<>]+$/;
 
 const META_KEYBINDING_FLAGS = Object.fromEntries(

@@ -64,41 +64,62 @@ export class KeyBindManager {
 			: Shell.ActionMode.ALL;
 
 		for (const command of COMMANDS) {
-			const accelerators = keybindings[command.key] ?? [];
+			const accelerators = keybindings[command.id] ?? [];
 			if (!Array.isArray(accelerators) || accelerators.length === 0) {
 				continue;
 			}
 
+			const validAccelerators = [];
 			for (const accel of accelerators) {
-				this._removeConflictingBindings(accel);
+				const canBind = this._removeConflictingBindings(accel);
+				if (canBind) {
+					validAccelerators.push(accel);
+				}
+			}
+
+			if (validAccelerators.length === 0) {
+				this._logger.log(
+					`Skipped binding ${command.id} - all accelerators conflict with existing bindings`,
+				);
+				continue;
 			}
 
 			const handler = (...args) => {
-				this._logger.log(`Called keybind ${command.key}`);
+				this._logger.log(`Called keybind ${command.id}`);
 				const currentConfig = this._configManager.getConfig();
-				return command.handler(command.key, currentConfig, this._logger, ...args);
+				return command.handler(
+					command.id,
+					currentConfig,
+					this._logger,
+					...args,
+				);
 			};
 
 			Main.wm.addKeybinding(
-				command.key,
+				command.id,
 				this._settings,
 				keybindingFlags,
 				actionMode,
 				handler,
 			);
 			this._logger.log(
-				`Bound keybind ${command.key} to ${accelerators.join(", ")}`,
+				`Bound keybind ${command.id} to ${validAccelerators.join(", ")}`,
 			);
 		}
 	}
 
 	_removeKeybindings() {
 		for (const command of COMMANDS) {
-			Main.wm.removeKeybinding(command.key);
+			Main.wm.removeKeybinding(command.id);
 		}
 	}
 
 	_removeConflictingBindings(accel) {
+		const shouldOverride = this._settings.get_boolean(
+			"override-conflicting-bindings",
+		);
+		let hasConflict = false;
+
 		for (const settings of this._conflictSettings) {
 			const schemaId = settings.schema_id;
 			for (const key of settings.settings_schema.list_keys()) {
@@ -115,13 +136,23 @@ export class KeyBindManager {
 					continue;
 				}
 
-				this._rememberReplaced(schemaId, key, current);
-				settings.set_strv(key, []);
-				this._logger.log(
-					`Removed conflicting keybind ${schemaId}::${key} (${accel})`,
-				);
+				hasConflict = true;
+
+				if (shouldOverride) {
+					this._rememberReplaced(schemaId, key, current);
+					settings.set_strv(key, []);
+					this._logger.log(
+						`Removed conflicting keybind ${schemaId}::${key} (${accel})`,
+					);
+				} else {
+					this._logger.log(
+						`Skipping conflicting keybind ${schemaId}::${key} (${accel}) - override disabled`,
+					);
+				}
 			}
 		}
+
+		return !hasConflict || shouldOverride;
 	}
 
 	_rememberReplaced(schemaId, key, value) {
