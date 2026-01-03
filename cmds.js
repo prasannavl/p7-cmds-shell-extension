@@ -6,14 +6,17 @@ import { COMMAND_DEFINITIONS, DEFAULT_WIN_OPTSIZE_CONFIG } from "./common.js";
 
 let winOptsizeCycleState = null;
 
+const MaximizeFlags = Meta.MaximizeFlags ?? {
+	HORIZONTAL: 1,
+	VERTICAL: 2,
+	BOTH: 3,
+};
+
 function getMaximizeState(metaWindow) {
 	const flags = metaWindow.get_maximize_flags?.() ?? 0;
-	const hFlag = Meta.MaximizeFlags.HORIZONTAL ?? 1;
-	const vFlag = Meta.MaximizeFlags.VERTICAL ?? 2;
-	const bothFlag = Meta.MaximizeFlags.BOTH ?? hFlag | vFlag;
 
-	let horizontal = (flags & hFlag) !== 0;
-	let vertical = (flags & vFlag) !== 0;
+	let horizontal = (flags & MaximizeFlags.HORIZONTAL) !== 0;
+	let vertical = (flags & MaximizeFlags.VERTICAL) !== 0;
 
 	if (!flags) {
 		horizontal = !!metaWindow.maximized_horizontally;
@@ -21,7 +24,9 @@ function getMaximizeState(metaWindow) {
 	}
 
 	const any = horizontal || vertical;
-	const full = flags ? (flags & bothFlag) === bothFlag : horizontal && vertical;
+	const full = flags
+		? (flags & MaximizeFlags.BOTH) === MaximizeFlags.BOTH
+		: horizontal && vertical;
 
 	return { any, full, horizontal, vertical };
 }
@@ -53,13 +58,15 @@ function resolveWinOptsizeScales(config, workArea) {
 }
 
 function win_optsize(config) {
-	const win = global.display.get_focus_window();
+	const win = global.display.get_focus_window
+		? global.display.get_focus_window()
+		: global.display.focus_window;
 	if (!win) {
 		return;
 	}
 
 	if (getMaximizeState(win).any) {
-		win.unmaximize(Meta.MaximizeFlags.BOTH);
+		win.unmaximize(MaximizeFlags.BOTH);
 	}
 
 	const monitor = win.get_monitor();
