@@ -31,8 +31,7 @@ function getMaximizeState(metaWindow) {
 	return { any, full, horizontal, vertical };
 }
 
-function resolveWinOptsizeScales(config, workArea) {
-	const winConfig = config?.winOptsize ?? DEFAULT_WIN_OPTSIZE_CONFIG;
+function resolveWinOptsizeScales(winConfig, workArea) {
 	let scales = winConfig.scales ?? DEFAULT_WIN_OPTSIZE_CONFIG.scales;
 	if (Array.isArray(winConfig.breakpoints)) {
 		for (const breakpoint of winConfig.breakpoints) {
@@ -73,7 +72,7 @@ function win_optsize(cmdName, config, _logger) {
 	const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor);
 
 	const winConfig = config?.winOptsize ?? DEFAULT_WIN_OPTSIZE_CONFIG;
-	const scales = resolveWinOptsizeScales(config, workArea);
+	const scales = resolveWinOptsizeScales(winConfig, workArea);
 
 	const winId = win.get_id();
 	let cycleState = STATE_MAP.get(cmdName);

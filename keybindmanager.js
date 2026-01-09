@@ -26,6 +26,20 @@ export class KeyBindManager {
 		this._conflictSettings = COMMON_KEYBINDING_SCHEMAS.map(
 			(schema) => new Gio.Settings({ schema }),
 		);
+		this._conflictKeyNames = new Map(
+			this._conflictSettings.map((settings) => {
+				const keys = settings.settings_schema
+					.list_keys()
+					.filter((key) => {
+						const keyInfo = settings.settings_schema.get_key(key);
+						const valueType = keyInfo?.get_value_type?.();
+						return (
+							valueType && valueType.equal(new GLib.VariantType("as"))
+						);
+					});
+				return [settings.schema_id, keys];
+			}),
+		);
 	}
 
 	enable() {
@@ -72,9 +86,10 @@ export class KeyBindManager {
 			const validAccelerators = [];
 			for (const accel of accelerators) {
 				const canBind = this._removeConflictingBindings(accel);
-				if (canBind) {
-					validAccelerators.push(accel);
+				if (!canBind) {
+					continue;
 				}
+				validAccelerators.push(accel);
 			}
 
 			if (validAccelerators.length === 0) {
@@ -122,12 +137,8 @@ export class KeyBindManager {
 
 		for (const settings of this._conflictSettings) {
 			const schemaId = settings.schema_id;
-			for (const key of settings.settings_schema.list_keys()) {
-				const keyInfo = settings.settings_schema.get_key(key);
-				const valueType = keyInfo?.get_value_type?.();
-				if (!valueType || !valueType.equal(new GLib.VariantType("as"))) {
-					continue;
-				}
+			const keys = this._conflictKeyNames.get(schemaId) ?? [];
+			for (const key of keys) {
 				const current = settings.get_strv(key);
 				if (!current) {
 					continue;

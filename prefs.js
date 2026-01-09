@@ -2,6 +2,7 @@
 
 import Adw from "gi://Adw";
 import Gdk from "gi://Gdk";
+import GLib from "gi://GLib";
 import Gtk from "gi://Gtk";
 import { ExtensionPreferences } from "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js";
 import {
@@ -301,6 +302,60 @@ function buildScaleRow(scale, index, onChange, onRemove) {
 	return row;
 }
 
+function buildScaleList({
+	scales,
+	addRow,
+	removeRow,
+	saveConfig,
+	addRowTitle,
+}) {
+	const scaleRows = [];
+	const updateScaleTitles = () => {
+		scaleRows.forEach((row, index) => {
+			row.set_title(`Scale ${index + 1}`);
+		});
+	};
+	const addScaleRowWidget = (scale) => {
+		const row = buildScaleRow(scale, scaleRows.length, saveConfig, () => {
+			const rowIndex = scaleRows.indexOf(row);
+			if (rowIndex < 0) {
+				return;
+			}
+			scales.splice(rowIndex, 1);
+			scaleRows.splice(rowIndex, 1);
+			removeRow(row);
+			updateScaleTitles();
+			saveConfig();
+		});
+		scaleRows.push(row);
+		return row;
+	};
+
+	scales.forEach((scale, index) => {
+		if (!Array.isArray(scale)) {
+			scales[index] = [0.8, 0.8];
+			scale = scales[index];
+		}
+		addRow(addScaleRowWidget(scale));
+	});
+
+	const addScaleRow = new Adw.ActionRow({ title: addRowTitle ?? "Add scale" });
+	const addScaleButton = new Gtk.Button({ label: "Add" });
+	addScaleButton.connect("clicked", () => {
+		const scale = [0.8, 0.8];
+		scales.push(scale);
+		const row = addScaleRowWidget(scale);
+		removeRow(addScaleRow);
+		addRow(row);
+		addRow(addScaleRow);
+		updateScaleTitles();
+		saveConfig();
+	});
+	addScaleRow.add_suffix(addScaleButton);
+	addRow(addScaleRow);
+	updateScaleTitles();
+}
+
 function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 	const configGroup = new Adw.PreferencesGroup();
 
@@ -308,6 +363,7 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 	let lastSerialized = null;
 	let jsonDirty = false;
 	let settingJson = false;
+	let saveTimeoutId = null;
 	const jsonGroup = new Adw.PreferencesGroup();
 	const jsonErrorRow = new Adw.ActionRow({
 		title: "JSON error",
@@ -379,13 +435,104 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 	const serializeConfig = (currentConfig) =>
 		JSON.stringify(currentConfig, null, 2);
 
-	const saveConfig = () => {
+	const saveConfigNow = () => {
 		const serialized = serializeConfig(config);
 		lastSerialized = serialized;
 		settings.set_string("win-optsize-config", serialized);
 		if (!jsonDirty) {
 			setJsonText(serialized);
 		}
+	};
+
+	const scheduleSaveConfig = () => {
+		if (saveTimeoutId) {
+			GLib.Source.remove(saveTimeoutId);
+		}
+		saveTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 250, () => {
+			saveTimeoutId = null;
+			saveConfigNow();
+			return GLib.SOURCE_REMOVE;
+		});
+	};
+
+	const buildBreakpointRow = (breakpoint, onRemove) => {
+		const expander = new Adw.ExpanderRow({
+			title: "Breakpoint",
+		});
+
+		const removeButton = new Gtk.Button({ label: "Remove" });
+		removeButton.connect("clicked", onRemove);
+		expander.add_suffix(removeButton);
+
+		const maxWidthRow = buildSpinRow({
+			title: "Max width",
+			value: breakpoint.maxWidth ?? 1920,
+			digits: 0,
+			min: 320,
+			max: 10000,
+			step: 10,
+			onChange: (value) => {
+				breakpoint.maxWidth = Math.round(value);
+				scheduleSaveConfig();
+			},
+		});
+		expander.add_row(maxWidthRow);
+
+		const hasMaxHeight = typeof breakpoint.maxHeight === "number";
+		const maxHeightRow = buildSpinRow({
+			title: "Max height",
+			value: hasMaxHeight ? breakpoint.maxHeight : 1080,
+			digits: 0,
+			min: 320,
+			max: 10000,
+			step: 10,
+			onChange: (value) => {
+				breakpoint.maxHeight = Math.round(value);
+				scheduleSaveConfig();
+			},
+		});
+		maxHeightRow.set_sensitive(hasMaxHeight);
+
+		const maxHeightToggle = new Adw.SwitchRow({
+			title: "Limit by max height",
+			active: hasMaxHeight,
+		});
+		maxHeightToggle.connect("notify::active", () => {
+			if (maxHeightToggle.get_active()) {
+				breakpoint.maxHeight = Math.round(
+					typeof breakpoint.maxHeight === "number"
+						? breakpoint.maxHeight
+						: 1080,
+				);
+				maxHeightRow.set_sensitive(true);
+			} else {
+				breakpoint.maxHeight = null;
+				maxHeightRow.set_sensitive(false);
+			}
+			scheduleSaveConfig();
+		});
+
+		expander.add_row(maxHeightToggle);
+		expander.add_row(maxHeightRow);
+
+		const scalesHeader = new Adw.ActionRow({ title: "Scales" });
+		expander.add_row(scalesHeader);
+
+		const scales = breakpoint.scales ?? [];
+		breakpoint.scales = scales;
+		buildScaleList({
+			scales,
+			addRow: (row) => expander.add_row(row),
+			removeRow: (row) => {
+				const parent = row.get_parent();
+				if (parent && typeof parent.remove === "function") {
+					parent.remove(row);
+				}
+			},
+			saveConfig: scheduleSaveConfig,
+		});
+
+		return expander;
 	};
 
 	const render = () => {
@@ -403,7 +550,7 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 		});
 		aspectRow.connect("notify::active", () => {
 			config.aspectBasedInversion = aspectRow.get_active();
-			saveConfig();
+			scheduleSaveConfig();
 		});
 		addRow(aspectRow);
 
@@ -415,56 +562,13 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 		);
 
 		const defaultScales = config.scales;
-		const defaultScaleRows = [];
-		const updateDefaultScaleTitles = () => {
-			defaultScaleRows.forEach((row, index) => {
-				row.set_title(`Scale ${index + 1}`);
-			});
-		};
-		const addDefaultScaleRowWidget = (scale) => {
-			const row = buildScaleRow(
-				scale,
-				defaultScaleRows.length,
-				saveConfig,
-				() => {
-					const rowIndex = defaultScaleRows.indexOf(row);
-					if (rowIndex < 0) {
-						return;
-					}
-					defaultScales.splice(rowIndex, 1);
-					defaultScaleRows.splice(rowIndex, 1);
-					removeRow(row);
-					updateDefaultScaleTitles();
-					saveConfig();
-				},
-			);
-			defaultScaleRows.push(row);
-			return row;
-		};
-
-		const addDefaultScaleRow = new Adw.ActionRow({
-			title: "Add default scale",
+		buildScaleList({
+			scales: defaultScales,
+			addRow,
+			removeRow,
+			saveConfig: scheduleSaveConfig,
+			addRowTitle: "Add default scale",
 		});
-		const addDefaultScaleButton = new Gtk.Button({ label: "Add" });
-		addDefaultScaleButton.connect("clicked", () => {
-			const scale = [0.8, 0.8];
-			defaultScales.push(scale);
-			const row = addDefaultScaleRowWidget(scale);
-			removeRow(addDefaultScaleRow);
-			addRow(row);
-			addRow(addDefaultScaleRow);
-			updateDefaultScaleTitles();
-			saveConfig();
-		});
-		addDefaultScaleRow.add_suffix(addDefaultScaleButton);
-		defaultScales.forEach((scale, index) => {
-			if (!Array.isArray(scale)) {
-				defaultScales[index] = [0.8, 0.8];
-				scale = defaultScales[index];
-			}
-			addRow(addDefaultScaleRowWidget(scale));
-		});
-		addRow(addDefaultScaleRow);
 
 		addRow(
 			new Adw.ActionRow({
@@ -474,139 +578,49 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 		);
 
 		const breakpoints = config.breakpoints;
-		breakpoints.forEach((breakpoint, index) => {
-			const expander = new Adw.ExpanderRow({
-				title: `Breakpoint ${index + 1}`,
+		const breakpointRows = [];
+		const updateBreakpointTitles = () => {
+			breakpointRows.forEach((row, index) => {
+				row.set_title(`Breakpoint ${index + 1}`);
 			});
-
-			const removeButton = new Gtk.Button({ label: "Remove" });
-			removeButton.connect("clicked", () => {
-				breakpoints.splice(index, 1);
-				saveConfig();
-				render();
-			});
-			expander.add_suffix(removeButton);
-
-			const maxWidthRow = buildSpinRow({
-				title: "Max width",
-				value: breakpoint.maxWidth ?? 1920,
-				digits: 0,
-				min: 320,
-				max: 10000,
-				step: 10,
-				onChange: (value) => {
-					breakpoint.maxWidth = Math.round(value);
-					saveConfig();
-				},
-			});
-			expander.add_row(maxWidthRow);
-
-			const hasMaxHeight = typeof breakpoint.maxHeight === "number";
-			const maxHeightRow = buildSpinRow({
-				title: "Max height",
-				value: hasMaxHeight ? breakpoint.maxHeight : 1080,
-				digits: 0,
-				min: 320,
-				max: 10000,
-				step: 10,
-				onChange: (value) => {
-					breakpoint.maxHeight = Math.round(value);
-					saveConfig();
-				},
-			});
-			maxHeightRow.set_sensitive(hasMaxHeight);
-
-			const maxHeightToggle = new Adw.SwitchRow({
-				title: "Limit by max height",
-				active: hasMaxHeight,
-			});
-			maxHeightToggle.connect("notify::active", () => {
-				if (maxHeightToggle.get_active()) {
-					breakpoint.maxHeight = Math.round(
-						typeof breakpoint.maxHeight === "number"
-							? breakpoint.maxHeight
-							: 1080,
-					);
-					maxHeightRow.set_sensitive(true);
-				} else {
-					breakpoint.maxHeight = null;
-					maxHeightRow.set_sensitive(false);
+		};
+		const addBreakpointRowWidget = (breakpoint) => {
+			const row = buildBreakpointRow(breakpoint, () => {
+				const rowIndex = breakpointRows.indexOf(row);
+				if (rowIndex < 0) {
+					return;
 				}
-				saveConfig();
+				breakpoints.splice(rowIndex, 1);
+				breakpointRows.splice(rowIndex, 1);
+				removeRow(row);
+				updateBreakpointTitles();
+				scheduleSaveConfig();
 			});
+			breakpointRows.push(row);
+			return row;
+		};
 
-			expander.add_row(maxHeightToggle);
-			expander.add_row(maxHeightRow);
-
-			const scalesHeader = new Adw.ActionRow({ title: "Scales" });
-			expander.add_row(scalesHeader);
-
-			const scales = breakpoint.scales ?? [];
-			breakpoint.scales = scales;
-			const scaleRows = [];
-			const updateScaleTitles = () => {
-				scaleRows.forEach((row, rowIndex) => {
-					row.set_title(`Scale ${rowIndex + 1}`);
-				});
-			};
-			const addScaleRowWidget = (scale) => {
-				const row = buildScaleRow(scale, scaleRows.length, saveConfig, () => {
-					const rowIndex = scaleRows.indexOf(row);
-					if (rowIndex < 0) {
-						return;
-					}
-					scales.splice(rowIndex, 1);
-					scaleRows.splice(rowIndex, 1);
-					const parent = row.get_parent();
-					if (parent && typeof parent.remove === "function") {
-						parent.remove(row);
-					}
-					updateScaleTitles();
-					saveConfig();
-				});
-				scaleRows.push(row);
-				return row;
-			};
-			scales.forEach((scale, scaleIndex) => {
-				if (!Array.isArray(scale)) {
-					scales[scaleIndex] = [0.8, 0.8];
-					scale = scales[scaleIndex];
-				}
-				expander.add_row(addScaleRowWidget(scale));
-			});
-
-			const addScaleRow = new Adw.ActionRow({ title: "Add scale" });
-			const addScaleButton = new Gtk.Button({ label: "Add" });
-			addScaleButton.connect("clicked", () => {
-				const scale = [0.8, 0.8];
-				scales.push(scale);
-				const row = addScaleRowWidget(scale);
-				const parent = addScaleRow.get_parent();
-				if (parent && typeof parent.remove === "function") {
-					parent.remove(addScaleRow);
-				}
-				expander.add_row(row);
-				expander.add_row(addScaleRow);
-				updateScaleTitles();
-				saveConfig();
-			});
-			addScaleRow.add_suffix(addScaleButton);
-			expander.add_row(addScaleRow);
-
-			addRow(expander);
+		breakpoints.forEach((breakpoint) => {
+			addRow(addBreakpointRowWidget(breakpoint));
 		});
+		updateBreakpointTitles();
 
 		const addBreakpointRow = new Adw.ActionRow({
 			title: "Add breakpoint",
 		});
 		const addBreakpointButton = new Gtk.Button({ label: "Add" });
 		addBreakpointButton.connect("clicked", () => {
-			breakpoints.push({
+			const breakpoint = {
 				maxWidth: 1920,
 				scales: [[0.8, 0.8]],
-			});
-			saveConfig();
-			render();
+			};
+			breakpoints.push(breakpoint);
+			const row = addBreakpointRowWidget(breakpoint);
+			removeRow(addBreakpointRow);
+			addRow(row);
+			addRow(addBreakpointRow);
+			updateBreakpointTitles();
+			scheduleSaveConfig();
 		});
 		addBreakpointRow.add_suffix(addBreakpointButton);
 		addRow(addBreakpointRow);
@@ -630,6 +644,10 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 		if (settings.get_string("win-optsize-config") === lastSerialized) {
 			return;
 		}
+		if (saveTimeoutId) {
+			GLib.Source.remove(saveTimeoutId);
+			saveTimeoutId = null;
+		}
 		render();
 	});
 
@@ -650,10 +668,9 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, parent) {
 			jsonErrorRow.set_visible(true);
 			return;
 		}
-		const serialized = serializeConfig(result.value);
-		lastSerialized = serialized;
-		setJsonText(serialized);
-		settings.set_string("win-optsize-config", serialized);
+		config = result.value;
+		saveConfigNow();
+		render();
 	});
 
 	reloadButton.connect("clicked", () => {

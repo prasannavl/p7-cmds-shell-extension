@@ -54,16 +54,16 @@ export function normalizeWinOptsizeConfig(rawConfig) {
 		rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
 			? rawConfig
 			: {};
-	if (!Array.isArray(config.scales)) {
-		config.scales = defaults.scales;
-	}
-	if (!Array.isArray(config.breakpoints)) {
-		config.breakpoints = defaults.breakpoints;
-	}
-	if (typeof config.aspectBasedInversion !== "boolean") {
-		config.aspectBasedInversion = defaults.aspectBasedInversion;
-	}
-	return config;
+	return {
+		scales: Array.isArray(config.scales) ? config.scales : defaults.scales,
+		breakpoints: Array.isArray(config.breakpoints)
+			? config.breakpoints
+			: defaults.breakpoints,
+		aspectBasedInversion:
+			typeof config.aspectBasedInversion === "boolean"
+				? config.aspectBasedInversion
+				: defaults.aspectBasedInversion,
+	};
 }
 
 export function parseWinOptsizeConfig(rawValue, options = {}) {

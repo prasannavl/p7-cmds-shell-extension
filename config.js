@@ -92,12 +92,30 @@ export class ConfigManager {
 			cleaned.push(trimmed);
 		}
 
-		if (changed) {
+		if (changed && !this._arraysEqual(bindings, cleaned)) {
 			this._settings.set_strv(key, cleaned);
 			this._logger.log(`Sanitized invalid keybindings for ${key}`);
 		}
 
 		return cleaned;
+	}
+
+	_arraysEqual(a, b) {
+		if (a === b) {
+			return true;
+		}
+		if (!Array.isArray(a) || !Array.isArray(b)) {
+			return false;
+		}
+		if (a.length !== b.length) {
+			return false;
+		}
+		for (let i = 0; i < a.length; i += 1) {
+			if (a[i] !== b[i]) {
+				return false;
+			}
+		}
+		return true;
 	}
 
 	_ensureDefaultsSaved() {
@@ -107,21 +125,26 @@ export class ConfigManager {
 			"keybinding-actionmode",
 			"win-optsize-config",
 		];
+		let saved = false;
 		for (const key of keys) {
-			this._ensureDefaultSaved(key);
+			saved = this._ensureDefaultSaved(key) || saved;
 		}
-		this._logger.log("Default configuration values saved to dconf");
+		if (saved) {
+			this._logger.log("Default configuration values saved to dconf");
+		}
 	}
 
 	_ensureDefaultSaved(key) {
 		const userValue = this._settings.get_user_value(key);
 		if (userValue) {
-			return;
+			return false;
 		}
 		const defaultValue = this._settings.get_default_value(key);
 		if (defaultValue) {
 			this._settings.set_value(key, defaultValue);
+			return true;
 		}
+		return false;
 	}
 
 	_parseEnumValue(value, map, fallback) {
