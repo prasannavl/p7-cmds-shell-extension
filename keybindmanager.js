@@ -28,15 +28,11 @@ export class KeyBindManager {
 		);
 		this._conflictKeyNames = new Map(
 			this._conflictSettings.map((settings) => {
-				const keys = settings.settings_schema
-					.list_keys()
-					.filter((key) => {
-						const keyInfo = settings.settings_schema.get_key(key);
-						const valueType = keyInfo?.get_value_type?.();
-						return (
-							valueType && valueType.equal(new GLib.VariantType("as"))
-						);
-					});
+				const keys = settings.settings_schema.list_keys().filter((key) => {
+					const keyInfo = settings.settings_schema.get_key(key);
+					const valueType = keyInfo?.get_value_type?.();
+					return valueType && valueType.equal(new GLib.VariantType("as"));
+				});
 				return [settings.schema_id, keys];
 			}),
 		);
