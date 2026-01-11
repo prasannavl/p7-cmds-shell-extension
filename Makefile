@@ -1,8 +1,10 @@
 UUID := p7-cmds@prasannavl.com
 DIST_DIR := dist
 SCHEMAS_DIR := schemas
-JS_FILES := $(wildcard *.js cmds/*.js)
-EXTRA_SOURCES := $(filter-out extension.js prefs.js,$(JS_FILES)) README.md CHANGELOG.md
+TOPLEVEL_JS := $(filter-out extension.js prefs.js,$(wildcard *.js))
+CMD_JS := $(wildcard cmds/*.js)
+JS_FILES := $(TOPLEVEL_JS) $(CMD_JS)
+EXTRA_SOURCES := $(TOPLEVEL_JS) README.md CHANGELOG.md cmds
 EXTRA_SOURCE_ARGS := $(foreach f,$(EXTRA_SOURCES),--extra-source=$(f))
 
 .PHONY: lint schemas version pack install ginstall enable disable reload clean
