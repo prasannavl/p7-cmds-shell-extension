@@ -1,6 +1,6 @@
 # GNOME Extension that adds some sensible commands that can be activated with key mappings
 
-- We have a bunch of commands that are defined in cmds.js, where each exported
+- We have a bunch of commands that are defined under cmds/, where each exported
   function can be a command that can be executed with access to the Mutter API.
 - We call them by connecting them to a key binding.
 - Keybindings are managed in keybindmanager.js.

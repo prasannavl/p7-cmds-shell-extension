@@ -3,14 +3,16 @@
 Sensible keyboard shortcuts with a small set of Mutter-aware commands. The
 extension ships a preferences UI for binding keys and tuning behavior.
 
-Compatibility: GNOME Shell 48+.
-Best effort compatibility: GNOME Shell 45+.
+- Compatibility: GNOME Shell 48+.
+- Best effort compatibility: GNOME Shell 45+.
+- Extension Store: https://extensions.gnome.org/extension/9065/p7-commands/
+- Project is also a Nix flake for direct install on NixOS. 
 
 ## Features
 
 - Keybindings managed by the extension (including clearing conflicts and
   restoring them on disable).
-- Commands are defined in `cmds.js` and can be bound to multiple shortcuts.
+- Commands are defined under `cmds/` and can be bound to multiple shortcuts.
 - Preferences UI to manage shortcuts and the win_optsize config.
 
 ## Commands

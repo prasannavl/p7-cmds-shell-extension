@@ -6,6 +6,11 @@
       <summary>Optimal size focused window</summary>
       <description>Resize the focused window to a size based on the monitor work area and center it.</description>
     </key>
+    <key name="cmd-win-mouseresize" type="as">
+      <default>["&lt;Super&gt;&lt;Control&gt;x"]</default>
+      <summary>Resize focused window with mouse</summary>
+      <description>Resize the focused window by holding Super+Ctrl and moving the mouse beyond the window edges.</description>
+    </key>
     <key name="win-optsize-config" type="s">
       <default>"{\"scales\":[[0.8,null],[0.7,0.8],[0.6,0.8]],\"breakpoints\":[{\"maxWidth\":1920,\"scales\":[[0.8,null]]},{\"maxWidth\":2560,\"scales\":[[0.8,0.8],[0.7,0.8]]}]}"</default>
       <summary>Win optsize config</summary>

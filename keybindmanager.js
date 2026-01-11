@@ -98,12 +98,7 @@ export class KeyBindManager {
 			const handler = (...args) => {
 				this._logger.log(`Called keybind ${command.id}`);
 				const currentConfig = this._configManager.getConfig();
-				return command.handler(
-					command.id,
-					currentConfig,
-					this._logger,
-					...args,
-				);
+				return command.handler(currentConfig, this._logger, ...args);
 			};
 
 			Main.wm.addKeybinding(

@@ -101,4 +101,11 @@ export const COMMAND_DEFINITIONS = [
 		description:
 			"Resize the focused window to a size based on the monitor work area and center it.",
 	},
+	{
+		id: "cmd-win-mouseresize",
+		title: "cmd:win-mouseresize",
+		icon: "transform-move-symbolic",
+		description:
+			"Resize the focused window by moving the mouse beyond the window edges; press Esc or the keybinding again to stop.",
+	},
 ];
