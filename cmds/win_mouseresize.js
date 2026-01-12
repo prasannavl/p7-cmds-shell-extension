@@ -229,7 +229,7 @@ function ensureResizeIndicator(state) {
 	const indicator = new St.Widget({
 		reactive: false,
 		style:
-			"background-color: rgba(255, 255, 255, 0.05);" +
+			"background-color: rgba(255, 255, 255, 0.1);" +
 			`border: ${INDICATOR_BORDER}px solid rgba(255, 255, 255, 0.85);` +
 			"border-radius: 5px;",
 	});
