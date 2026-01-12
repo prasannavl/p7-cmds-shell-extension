@@ -454,7 +454,8 @@ export function win_mouseresize(_config, logger) {
 		if (
 			type === Clutter.EventType.MOTION ||
 			type === Clutter.EventType.BUTTON_RELEASE ||
-			type === Clutter.EventType.KEY_RELEASE
+			type === Clutter.EventType.KEY_RELEASE ||
+			type === Clutter.EventType.TOUCHPAD_HOLD
 		) {
 			return Clutter.EVENT_PROPAGATE;
 		}
