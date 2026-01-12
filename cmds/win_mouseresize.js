@@ -117,7 +117,12 @@ function connectDisplaySignals(state, onEvent, onFocusChange) {
 		connectObjectIfSignal(display, name, onEvent, state);
 	}
 	if (!connectObjectIfSignal(display, "focus-window", onFocusChange, state)) {
-		connectObjectIfSignal(display, "notify::focus-window", onFocusChange, state);
+		connectObjectIfSignal(
+			display,
+			"notify::focus-window",
+			onFocusChange,
+			state,
+		);
 	}
 }
 
@@ -154,7 +159,10 @@ function endMouseResize(existingState) {
 	if (state.tracker) {
 		state.tracker.disconnectObject(state);
 	}
-	if (state.trackedPosition && typeof state.tracker?.untrack_position === "function") {
+	if (
+		state.trackedPosition &&
+		typeof state.tracker?.untrack_position === "function"
+	) {
 		state.tracker.untrack_position();
 	}
 	if (state.win) {
@@ -206,7 +214,12 @@ function ensureLockedEdges(state, point, rect) {
 			state.edges.bottom = !state.edges.top;
 		}
 	}
-	return state.edges.left || state.edges.right || state.edges.top || state.edges.bottom;
+	return (
+		state.edges.left ||
+		state.edges.right ||
+		state.edges.top ||
+		state.edges.bottom
+	);
 }
 
 function ensureResizeIndicator(state) {
@@ -229,7 +242,10 @@ function updateResizeIndicator(state, rect) {
 	ensureResizeIndicator(state);
 	const indicator = state.indicator;
 	indicator.set_position(rect.x - INDICATOR_BORDER, rect.y - INDICATOR_BORDER);
-	indicator.set_size(rect.width + INDICATOR_BORDER * 2, rect.height + INDICATOR_BORDER * 2);
+	indicator.set_size(
+		rect.width + INDICATOR_BORDER * 2,
+		rect.height + INDICATOR_BORDER * 2,
+	);
 	indicator.show();
 }
 
@@ -404,7 +420,12 @@ export function win_mouseresize(_config, logger) {
 
 	setResizeCursor(true);
 	updateResizeIndicator(state, state.startRect);
-	connectObjectIfSignal(state.win, "unmanaged", () => exitResize("window unmanaged"), state);
+	connectObjectIfSignal(
+		state.win,
+		"unmanaged",
+		() => exitResize("window unmanaged"),
+		state,
+	);
 
 	const tracker = getCursorTracker();
 	if (!tracker) {
@@ -441,7 +462,12 @@ export function win_mouseresize(_config, logger) {
 		return Clutter.EVENT_PROPAGATE;
 	};
 
-	connectObjectIfSignal(global.stage, "captured-event", handleGlobalEvent, state);
+	connectObjectIfSignal(
+		global.stage,
+		"captured-event",
+		handleGlobalEvent,
+		state,
+	);
 
 	connectObjectIfSignal(
 		global.workspace_manager,

@@ -10,10 +10,7 @@ export const MaximizeFlags = Meta.MaximizeFlags ?? {
 	BOTH: 3,
 };
 
-const RESIZE_CURSOR_CANDIDATES = [
-	"ALL_RESIZE",
-	"MOVE",
-];
+const RESIZE_CURSOR_CANDIDATES = ["ALL_RESIZE", "MOVE"];
 
 export function getDisplay() {
 	if (global.display) {
@@ -184,9 +181,10 @@ export function getPointerData() {
 			: typeof Clutter.get_default_backend === "function"
 				? Clutter.get_default_backend()
 				: null;
-	const seat = backend && typeof backend.get_default_seat === "function"
-		? backend.get_default_seat()
-		: null;
+	const seat =
+		backend && typeof backend.get_default_seat === "function"
+			? backend.get_default_seat()
+			: null;
 
 	// Try Seat API (GNOME 49+ preferred)
 	if (seat) {
@@ -195,7 +193,8 @@ export function getPointerData() {
 			const modifiers = seat.get_key_modifiers();
 			return { x, y, modifiers };
 		}
-		const pointer = typeof seat.get_pointer === "function" ? seat.get_pointer() : null;
+		const pointer =
+			typeof seat.get_pointer === "function" ? seat.get_pointer() : null;
 		if (pointer && typeof pointer.get_coords === "function") {
 			const [x, y] = pointer.get_coords();
 			const modifiers =
@@ -209,7 +208,10 @@ export function getPointerData() {
 	}
 
 	// Fallback to DeviceManager (GNOME 45-48)
-	if (Clutter.DeviceManager && typeof Clutter.DeviceManager.get_default === "function") {
+	if (
+		Clutter.DeviceManager &&
+		typeof Clutter.DeviceManager.get_default === "function"
+	) {
 		const deviceManager = Clutter.DeviceManager.get_default();
 		const pointer = deviceManager.get_core_device(
 			Clutter.InputDeviceType.POINTER_DEVICE,

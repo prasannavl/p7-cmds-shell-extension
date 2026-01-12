@@ -2,7 +2,10 @@
 
 import { COMMAND_DEFINITIONS } from "./common.js";
 import { STATE_MAP } from "./cmds/state.js";
-import { win_mouseresize, cleanupWinMouseResize } from "./cmds/win_mouseresize.js";
+import {
+	win_mouseresize,
+	cleanupWinMouseResize,
+} from "./cmds/win_mouseresize.js";
 import { win_optsize } from "./cmds/win_optsize.js";
 
 const COMMAND_HANDLERS = {
