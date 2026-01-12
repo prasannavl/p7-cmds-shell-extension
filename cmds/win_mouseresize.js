@@ -256,11 +256,11 @@ function computeMouseResizeRect(rect, edges, startPoint, pointer, minSize) {
 
 function applyResizeRect(win, rect, edges, logger) {
 	if (!rect) {
-		logger.log("win_mouseresize: no edges enabled");
+		logger.verboseLog("win_mouseresize: no edges enabled");
 		return null;
 	}
 	const { x, y, width, height } = rect;
-	logger.log(
+	logger.verboseLog(
 		`win_mouseresize: ${edges.left ? "left" : edges.right ? "right" : "-"},${
 			edges.top ? "top" : edges.bottom ? "bottom" : "-"
 		} -> ${width}x${height} @ ${x},${y}`,
@@ -325,10 +325,10 @@ export function win_mouseresize(_config, logger) {
 	const state = getFreshMouseResizeState();
 	const win = getFocusedWindow();
 	if (!win) {
-		logger.log("win_mouseresize: no focused window");
+		logger.verboseLog("win_mouseresize: no focused window");
 		return;
 	}
-	logger.log("win_mouseresize: enter resize mode");
+	logger.verboseLog("win_mouseresize: enter resize mode");
 
 	normalizeWindow(win);
 
@@ -348,7 +348,7 @@ export function win_mouseresize(_config, logger) {
 			return;
 		}
 		endMouseResize();
-		logger.log(`win_mouseresize: exit resize mode (${reason})`);
+		logger.verboseLog(`win_mouseresize: exit resize mode (${reason})`);
 	};
 
 	const handlePointerMove = () => {
@@ -379,14 +379,14 @@ export function win_mouseresize(_config, logger) {
 
 	const tracker = getCursorTracker();
 	if (!tracker) {
-		logger.log("win_mouseresize: no cursor tracker");
+		logger.verboseLog("win_mouseresize: no cursor tracker");
 		endMouseResize(state);
 		return;
 	}
 	state.tracker = tracker;
 	const signalName = getCursorPositionSignalName(tracker);
 	if (!signalName) {
-		logger.log("win_mouseresize: no cursor position signal");
+		logger.verboseLog("win_mouseresize: no cursor position signal");
 		endMouseResize(state);
 		return;
 	}

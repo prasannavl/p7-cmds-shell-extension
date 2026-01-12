@@ -781,6 +781,16 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 		});
 		defaultsGroup.add(overrideRow);
 
+		const verboseRow = new Adw.SwitchRow({
+			title: "Verbose logging",
+			subtitle: "Enable extra logging for troubleshooting",
+		});
+		verboseRow.set_active(settings.get_boolean("verbose-logging"));
+		verboseRow.connect("notify::active", () => {
+			settings.set_boolean("verbose-logging", verboseRow.get_active());
+		});
+		defaultsGroup.add(verboseRow);
+
 		shortcutsPage.add(defaultsGroup);
 
 		for (const command of COMMAND_DEFINITIONS) {

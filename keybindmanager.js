@@ -57,7 +57,7 @@ export class KeyBindManager {
 	}
 
 	_onConfigChanged(changeType) {
-		this._logger.log(`Config changed: ${changeType}`);
+		this._logger.verboseLog(`Config changed: ${changeType}`);
 		if (changeType === "settings-changed") {
 			this.reload();
 		}
@@ -89,7 +89,7 @@ export class KeyBindManager {
 			}
 
 			if (validAccelerators.length === 0) {
-				this._logger.log(
+				this._logger.verboseLog(
 					`Skipped binding ${command.id} - all accelerators conflict with existing bindings`,
 				);
 				continue;
@@ -108,7 +108,7 @@ export class KeyBindManager {
 				actionMode,
 				handler,
 			);
-			this._logger.log(
+			this._logger.verboseLog(
 				`Bound keybind ${command.id} to ${validAccelerators.join(", ")}`,
 			);
 		}
@@ -143,11 +143,11 @@ export class KeyBindManager {
 				if (shouldOverride) {
 					this._rememberReplaced(schemaId, key, current);
 					settings.set_strv(key, []);
-					this._logger.log(
+					this._logger.verboseLog(
 						`Removed conflicting keybind ${schemaId}::${key} (${accel})`,
 					);
 				} else {
-					this._logger.log(
+					this._logger.verboseLog(
 						`Skipping conflicting keybind ${schemaId}::${key} (${accel}) - override disabled`,
 					);
 				}
@@ -177,7 +177,7 @@ export class KeyBindManager {
 			}
 			for (const [key, value] of keys) {
 				settings.set_strv(key, value);
-				this._logger.log(`Restored keybind ${schemaId}::${key}`);
+				this._logger.verboseLog(`Restored keybind ${schemaId}::${key}`);
 			}
 		}
 		this._replacedBindings.clear();

@@ -94,7 +94,7 @@ export class ConfigManager {
 
 		if (changed && !this._arraysEqual(bindings, cleaned)) {
 			this._settings.set_strv(key, cleaned);
-			this._logger.log(`Sanitized invalid keybindings for ${key}`);
+			this._logger.verboseLog(`Sanitized invalid keybindings for ${key}`);
 		}
 
 		return cleaned;
@@ -130,7 +130,7 @@ export class ConfigManager {
 			saved = this._ensureDefaultSaved(key) || saved;
 		}
 		if (saved) {
-			this._logger.log("Default configuration values saved to dconf");
+			this._logger.verboseLog("Default configuration values saved to dconf");
 		}
 	}
 
