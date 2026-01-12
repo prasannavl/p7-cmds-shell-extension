@@ -31,6 +31,14 @@ Default keybinding: `<Super>x`
   windows out of bounds or at extremely large sizes. This can quickly help bring
   those windows into an optimal size.
 
+### win_mouseresize
+
+Resizes the focused window using the mouse by locking to the nearest edge once
+you move the cursor past it, then dragging to the target size.
+
+- Default keybinding: `<Super><Shift>x`
+- Press and hold Super + Shift and move mouse to resize.
+
 ## Configuration
 
 Configuration is stored in a single GSettings schema
