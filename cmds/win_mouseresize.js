@@ -9,11 +9,9 @@ import {
 	getCursorTracker,
 	getDisplay,
 	getFocusedWindow,
-	isWindowFullscreen,
-	isWindowMaximized,
+	normalizeWindow,
 	getMonitorManager,
 	getPointerData,
-	MaximizeFlags,
 	setResizeCursor,
 	connectObjectIfSignal,
 } from "../compat.js";
@@ -91,18 +89,6 @@ function connectDisplaySignals(state, onEvent, onFocusChange) {
 	}
 	if (!connectObjectIfSignal(display, "focus-window", onFocusChange, state)) {
 		connectObjectIfSignal(display, "notify::focus-window", onFocusChange, state);
-	}
-}
-
-function normalizeWindowForResize(win) {
-	if (!win) {
-		return;
-	}
-	if (isWindowFullscreen(win) && typeof win.unmake_fullscreen === "function") {
-		win.unmake_fullscreen();
-	}
-	if (isWindowMaximized(win) && typeof win.unmaximize === "function") {
-		win.unmaximize(MaximizeFlags.BOTH);
 	}
 }
 
@@ -344,7 +330,7 @@ export function win_mouseresize(_config, logger) {
 	}
 	logger.log("win_mouseresize: enter resize mode");
 
-	normalizeWindowForResize(win);
+	normalizeWindow(win);
 
 	state.active = true;
 	state.win = win;

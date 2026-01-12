@@ -4,6 +4,17 @@ import Clutter from "gi://Clutter";
 import GObject from "gi://GObject";
 import Meta from "gi://Meta";
 
+export const MaximizeFlags = Meta.MaximizeFlags ?? {
+	HORIZONTAL: 1,
+	VERTICAL: 2,
+	BOTH: 3,
+};
+
+const RESIZE_CURSOR_CANDIDATES = [
+	"ALL_RESIZE",
+	"MOVE",
+];
+
 export function getDisplay() {
 	if (global.display) {
 		return global.display;
@@ -16,17 +27,6 @@ export function getDisplay() {
 	}
 	return null;
 }
-
-export const MaximizeFlags = Meta.MaximizeFlags ?? {
-	HORIZONTAL: 1,
-	VERTICAL: 2,
-	BOTH: 3,
-};
-
-const RESIZE_CURSOR_CANDIDATES = [
-	"ALL_RESIZE",
-	"MOVE",
-];
 
 export function getFocusedWindow() {
 	const display = getDisplay();
@@ -70,6 +70,18 @@ export function isWindowFullscreen(win) {
 		return win.is_fullscreen();
 	}
 	return !!win.fullscreen;
+}
+
+export function normalizeWindow(win) {
+	if (!win) {
+		return;
+	}
+	if (isWindowFullscreen(win) && typeof win.unmake_fullscreen === "function") {
+		win.unmake_fullscreen();
+	}
+	if (isWindowMaximized(win) && typeof win.unmaximize === "function") {
+		win.unmaximize(MaximizeFlags.BOTH);
+	}
 }
 
 export function getCursorTracker() {

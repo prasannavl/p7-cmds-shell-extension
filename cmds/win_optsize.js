@@ -2,7 +2,7 @@
 
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { DEFAULT_WIN_OPTSIZE_CONFIG } from "../common.js";
-import { getMaximizeState, MaximizeFlags } from "../compat.js";
+import { normalizeWindow } from "../compat.js";
 import { STATE_KEYS, STATE_MAP } from "./state.js";
 
 function resolveWinOptsizeScales(winConfig, workArea) {
@@ -38,9 +38,7 @@ export function win_optsize(config, _logger) {
 		return;
 	}
 
-	if (getMaximizeState(win).any) {
-		win.unmaximize(MaximizeFlags.BOTH);
-	}
+	normalizeWindow(win);
 
 	const monitor = win.get_monitor();
 	const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor);
