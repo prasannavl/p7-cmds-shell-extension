@@ -39,6 +39,10 @@ you move the cursor past it, then dragging to the target size.
 - Default keybinding: `<Super><Shift>x`
 - Press and hold Super + Shift and move mouse to resize.
 
+#### Notes
+
+- This brings Sway like mouse resize behavior to GNOME shell.
+
 ## Configuration
 
 Configuration is stored in a single GSettings schema
