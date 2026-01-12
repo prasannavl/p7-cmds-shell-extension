@@ -3,7 +3,7 @@
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { DEFAULT_WIN_OPTSIZE_CONFIG } from "../common.js";
 import { normalizeWindow } from "../compat.js";
-import { STATE_KEYS, STATE_MAP } from "./state.js";
+import { STATE_KEYS, STATE_MAP } from "../cmds.js";
 
 function resolveWinOptsizeScales(winConfig, workArea) {
 	let scales = winConfig.scales ?? DEFAULT_WIN_OPTSIZE_CONFIG.scales;

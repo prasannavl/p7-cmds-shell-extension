@@ -1,12 +1,18 @@
 // cmds.js
 
 import { COMMAND_DEFINITIONS } from "./common.js";
-import { STATE_MAP } from "./cmds/state.js";
 import {
 	win_mouseresize,
 	cleanupWinMouseResize,
 } from "./cmds/win_mouseresize.js";
 import { win_optsize } from "./cmds/win_optsize.js";
+
+export const STATE_MAP = new Map();
+
+export const STATE_KEYS = {
+	WIN_OPTSIZE: "cmd-win-optsize",
+	WIN_MOUSE_RESIZE: "cmd-win-mouseresize",
+};
 
 const COMMAND_HANDLERS = {
 	"cmd-win-optsize": win_optsize,
@@ -17,8 +23,6 @@ export const COMMANDS = COMMAND_DEFINITIONS.map((command) => ({
 	...command,
 	handler: COMMAND_HANDLERS[command.id],
 }));
-
-export { STATE_MAP };
 
 export function cleanupCommands() {
 	cleanupWinMouseResize();

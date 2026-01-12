@@ -15,7 +15,7 @@ import {
 	setResizeCursor,
 	connectObjectIfSignal,
 } from "../compat.js";
-import { STATE_KEYS, STATE_MAP } from "./state.js";
+import { STATE_KEYS, STATE_MAP } from "../cmds.js";
 
 const MIN_RESIZE_SIZE = 10;
 const INDICATOR_BORDER = 3;
