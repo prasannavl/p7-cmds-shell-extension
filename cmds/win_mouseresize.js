@@ -230,7 +230,7 @@ function ensureResizeIndicator(state) {
 		reactive: false,
 		style:
 			"background-color: rgba(255, 255, 255, 0.1);" +
-			`border: ${INDICATOR_BORDER}px solid rgba(255, 255, 255, 0.85);` +
+			`border: ${INDICATOR_BORDER}px solid rgba(255, 255, 255, 0.8);` +
 			"border-radius: 5px;",
 	});
 	indicator.hide();
