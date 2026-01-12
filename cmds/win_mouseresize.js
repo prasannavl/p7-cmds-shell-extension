@@ -69,6 +69,35 @@ function connectOverviewSignals(state, onEvent) {
 	}
 }
 
+function connectLayoutStateSignals(state, onEvent) {
+	const layoutManager = Main.layoutManager;
+	if (!layoutManager) {
+		return;
+	}
+	const targets = [
+		layoutManager.overviewGroup,
+		layoutManager._overviewGroup,
+		layoutManager.panelBox,
+		layoutManager._panelBox,
+	].filter(Boolean);
+	const signalNames = ["notify::visible", "show", "hide"];
+	for (const target of targets) {
+		for (const name of signalNames) {
+			connectObjectIfSignal(
+				target,
+				name,
+				(actor) => {
+					if (name === "notify::visible" && !actor?.visible) {
+						return;
+					}
+					onEvent();
+				},
+				state,
+			);
+		}
+	}
+}
+
 function connectDisplaySignals(state, onEvent, onFocusChange) {
 	const display = getDisplay();
 	if (!display) {
@@ -187,9 +216,9 @@ function ensureResizeIndicator(state) {
 	const indicator = new St.Widget({
 		reactive: false,
 		style:
-			"background-color: rgba(255, 255, 255, 0.2);" +
+			"background-color: rgba(255, 255, 255, 0.05);" +
 			`border: ${INDICATOR_BORDER}px solid rgba(255, 255, 255, 0.85);` +
-			"border-radius: 6px;",
+			"border-radius: 5px;",
 	});
 	indicator.hide();
 	Main.uiGroup.add_child(indicator);
@@ -428,6 +457,7 @@ export function win_mouseresize(_config, logger) {
 		state,
 	);
 	connectOverviewSignals(state, () => exitResize("overview"));
+	connectLayoutStateSignals(state, () => exitResize("layout state"));
 	connectDisplaySignals(
 		state,
 		() => exitResize("display event"),
