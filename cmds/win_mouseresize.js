@@ -1,17 +1,28 @@
 // cmds/win_mouseresize.js
 
 import Clutter from "gi://Clutter";
-import Meta from "gi://Meta";
+import GLib from "gi://GLib";
 import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
+import {
+	getCursorPositionSignalName,
+	getCursorTracker,
+	getDisplay,
+	getFocusedWindow,
+	isWindowFullscreen,
+	isWindowMaximized,
+	getMonitorManager,
+	getPointerData,
+	MaximizeFlags,
+	setResizeCursor,
+	connectObjectIfSignal,
+} from "../compat.js";
 import { STATE_KEYS, STATE_MAP } from "./state.js";
 
-function getFreshMouseResizeState() {
-	let state = STATE_MAP.get(STATE_KEYS.WIN_MOUSE_RESIZE);
-	if (state && state.active) {
-		endMouseResize(state);
-	}
-	state = {
+const MIN_RESIZE_SIZE = 10;
+const INDICATOR_BORDER = 3;
+function createMouseResizeState() {
+	return {
 		active: false,
 		tracker: null,
 		win: null,
@@ -19,57 +30,99 @@ function getFreshMouseResizeState() {
 		indicator: null,
 		edges: null,
 		startRect: null,
+		startPoint: null,
+		minSize: null,
+		trackedPosition: false,
+		pendingPoint: null,
+		pendingRect: null,
+		resizeSourceId: 0,
+		indicatorSourceId: 0,
 	};
+}
+
+function resetMouseResizeState(state) {
+	Object.assign(state, createMouseResizeState());
+}
+
+function getFreshMouseResizeState() {
+	let state = STATE_MAP.get(STATE_KEYS.WIN_MOUSE_RESIZE);
+	if (state && state.active) {
+		endMouseResize(state);
+	}
+	state = createMouseResizeState();
 	STATE_MAP.set(STATE_KEYS.WIN_MOUSE_RESIZE, state);
 	return state;
 }
 
-function getCursorTracker() {
-	// 1. GNOME 49+ often consolidates backend access
-	if (typeof global.backend?.get_cursor_tracker === "function") {
-		return global.backend.get_cursor_tracker();
+function connectOverviewSignals(state, onEvent) {
+	const overview = Main.overview;
+	if (!overview) {
+		return;
 	}
-
-	// 2. Standard Mutter API (Stable across many versions)
-	if (typeof Meta.CursorTracker?.get_for_display === "function") {
-		return Meta.CursorTracker.get_for_display(global.display);
+	const signalNames = [
+		"showing",
+		"shown",
+		"hiding",
+		"hidden",
+		"notify::visible",
+	];
+	for (const name of signalNames) {
+		connectObjectIfSignal(overview, name, onEvent, state);
 	}
-
-	// 3. Fallback for older Shell versions or specific builds
-	if (typeof global.display?.get_cursor_tracker === "function") {
-		return global.display.get_cursor_tracker();
-	}
-
-	return null;
 }
 
-function getPointerData() {
-	const seat =
-		typeof Clutter.get_default_backend === "function"
-			? Clutter.get_default_backend().get_default_seat()
-			: null;
-
-	// Try Seat API (GNOME 49+ preferred)
-	if (seat && typeof seat.get_pointer_coords === "function") {
-		const [x, y] = seat.get_pointer_coords();
-		const modifiers = seat.get_key_modifiers();
-		return { x, y, modifiers };
+function connectDisplaySignals(state, onEvent, onFocusChange) {
+	const display = getDisplay();
+	if (!display) {
+		return;
 	}
-
-	// Fallback to DeviceManager (GNOME 45-48)
-	const deviceManager = Clutter.DeviceManager.get_default();
-	const pointer = deviceManager.get_core_device(
-		Clutter.InputDeviceType.POINTER_DEVICE,
-	);
-	if (pointer) {
-		const [x, y] = pointer.get_coords();
-		const modifiers = pointer.get_modifier_state();
-		return { x, y, modifiers };
+	const signalNames = [
+		"window-created",
+		"window-removed",
+		"window-demands-attention",
+		"window-marked-urgent",
+		"restacked",
+		"workareas-changed",
+		"grab-op-begin",
+		"grab-op-end",
+	];
+	for (const name of signalNames) {
+		connectObjectIfSignal(display, name, onEvent, state);
 	}
+	if (!connectObjectIfSignal(display, "focus-window", onFocusChange, state)) {
+		connectObjectIfSignal(display, "notify::focus-window", onFocusChange, state);
+	}
+}
 
-	// Absolute fallback
-	const [x, y, modifiers] = global.get_pointer();
-	return { x, y, modifiers };
+function normalizeWindowForResize(win) {
+	if (!win) {
+		return;
+	}
+	if (isWindowFullscreen(win) && typeof win.unmake_fullscreen === "function") {
+		win.unmake_fullscreen();
+	}
+	if (isWindowMaximized(win) && typeof win.unmaximize === "function") {
+		win.unmaximize(MaximizeFlags.BOTH);
+	}
+}
+
+function getWindowMinSize(win) {
+	let minWidth = MIN_RESIZE_SIZE;
+	let minHeight = MIN_RESIZE_SIZE;
+	if (win && typeof win.get_min_size === "function") {
+		const [width, height] = win.get_min_size();
+		minWidth = Math.max(MIN_RESIZE_SIZE, width);
+		minHeight = Math.max(MIN_RESIZE_SIZE, height);
+		return { width: minWidth, height: minHeight };
+	}
+	if (win && typeof win.get_size_hints === "function") {
+		const hints = win.get_size_hints();
+		if (hints) {
+			minWidth = Math.max(MIN_RESIZE_SIZE, hints.min_width ?? minWidth);
+			minHeight = Math.max(MIN_RESIZE_SIZE, hints.min_height ?? minHeight);
+		}
+	}
+	return { width: minWidth, height: minHeight };
 }
 
 function endMouseResize(existingState) {
@@ -77,24 +130,68 @@ function endMouseResize(existingState) {
 	if (!state) {
 		return;
 	}
+	setResizeCursor(false);
+	Main.overview?.disconnectObject?.(state);
+	global.workspace_manager?.disconnectObject?.(state);
+	getDisplay()?.disconnectObject?.(state);
+	getMonitorManager()?.disconnectObject?.(state);
+	global.stage?.disconnectObject?.(state);
 	if (state.tracker) {
 		state.tracker.disconnectObject(state);
+	}
+	if (state.trackedPosition && typeof state.tracker?.untrack_position === "function") {
+		state.tracker.untrack_position();
+	}
+	if (state.win) {
+		state.win.disconnectObject(state);
+	}
+	if (state.resizeSourceId) {
+		GLib.source_remove(state.resizeSourceId);
+	}
+	if (state.indicatorSourceId) {
+		GLib.source_remove(state.indicatorSourceId);
 	}
 	if (state.indicator) {
 		state.indicator.destroy();
 	}
-	state.active = false;
-	state.tracker = null;
-	state.win = null;
-	state.winId = null;
-	state.edges = null;
-	state.indicator = null;
-	state.startRect = null;
+	resetMouseResizeState(state);
 }
 
-function isResizeGestureActive(state) {
-	const modifiers = Clutter.ModifierType.MOD4_MASK;
-	return (state & modifiers) === modifiers;
+function ensureLockedEdges(state, point, rect) {
+	if (!state.edges) {
+		state.edges = { left: false, right: false, top: false, bottom: false };
+	}
+	const dx = point.x - state.startPoint.x;
+	const dy = point.y - state.startPoint.y;
+	if (!state.edges.left && !state.edges.right && dx !== 0) {
+		const leftEdge = rect.x;
+		const rightEdge = rect.x + rect.width;
+		const distLeft = Math.abs(point.x - leftEdge);
+		const distRight = Math.abs(point.x - rightEdge);
+		const nearestIsRight = distRight < distLeft;
+		if (dx < 0) {
+			state.edges.right = nearestIsRight;
+			state.edges.left = !nearestIsRight;
+		} else if (dx > 0) {
+			state.edges.left = distLeft < distRight;
+			state.edges.right = !state.edges.left;
+		}
+	}
+	if (!state.edges.top && !state.edges.bottom && dy !== 0) {
+		const topEdge = rect.y;
+		const bottomEdge = rect.y + rect.height;
+		const distTop = Math.abs(point.y - topEdge);
+		const distBottom = Math.abs(point.y - bottomEdge);
+		const nearestIsBottom = distBottom < distTop;
+		if (dy < 0) {
+			state.edges.bottom = nearestIsBottom;
+			state.edges.top = !nearestIsBottom;
+		} else if (dy > 0) {
+			state.edges.top = distTop < distBottom;
+			state.edges.bottom = !state.edges.top;
+		}
+	}
+	return state.edges.left || state.edges.right || state.edges.top || state.edges.bottom;
 }
 
 function ensureResizeIndicator(state) {
@@ -104,8 +201,8 @@ function ensureResizeIndicator(state) {
 	const indicator = new St.Widget({
 		reactive: false,
 		style:
-			"background-color: rgba(255, 255, 255, 0.06);" +
-			"border: 2px solid rgba(255, 255, 255, 0.85);" +
+			"background-color: rgba(255, 255, 255, 0.2);" +
+			`border: ${INDICATOR_BORDER}px solid rgba(255, 255, 255, 0.85);` +
 			"border-radius: 6px;",
 	});
 	indicator.hide();
@@ -116,18 +213,19 @@ function ensureResizeIndicator(state) {
 function updateResizeIndicator(state, rect) {
 	ensureResizeIndicator(state);
 	const indicator = state.indicator;
-	indicator.set_position(rect.x, rect.y);
-	indicator.set_size(rect.width, rect.height);
+	indicator.set_position(rect.x - INDICATOR_BORDER, rect.y - INDICATOR_BORDER);
+	indicator.set_size(rect.width + INDICATOR_BORDER * 2, rect.height + INDICATOR_BORDER * 2);
 	indicator.show();
 }
 
-function applyMouseResize(win, rect, edges, pointer, logger) {
-	if (!edges.left && !edges.right && !edges.top && !edges.bottom) {
-		logger.log("win_mouseresize: no edges enabled");
+function computeMouseResizeRect(rect, edges, startPoint, pointer, minSize) {
+	if (!edges || (!edges.left && !edges.right && !edges.top && !edges.bottom)) {
 		return null;
 	}
-	const rightEdge = rect.x + rect.width;
-	const bottomEdge = rect.y + rect.height;
+	const dx = pointer.x - startPoint.x;
+	const dy = pointer.y - startPoint.y;
+	const minWidth = minSize?.width ?? MIN_RESIZE_SIZE;
+	const minHeight = minSize?.height ?? MIN_RESIZE_SIZE;
 
 	let x = rect.x;
 	let y = rect.y;
@@ -135,110 +233,163 @@ function applyMouseResize(win, rect, edges, pointer, logger) {
 	let height = rect.height;
 
 	if (edges.left) {
-		x = Math.min(pointer.x, rightEdge);
-		width = rightEdge - x;
+		x = rect.x + dx;
+		width = rect.width - dx;
 	} else if (edges.right) {
-		width = Math.max(pointer.x - rect.x, 0);
+		width = rect.width + dx;
 	}
 
 	if (edges.top) {
-		y = Math.min(pointer.y, bottomEdge);
-		height = bottomEdge - y;
+		y = rect.y + dy;
+		height = rect.height - dy;
 	} else if (edges.bottom) {
-		height = Math.max(pointer.y - rect.y, 0);
+		height = rect.height + dy;
 	}
 
-	x = Math.round(x);
-	y = Math.round(y);
-	width = Math.round(width);
-	height = Math.round(height);
+	if (width < minWidth) {
+		width = minWidth;
+		if (edges.left) {
+			x = rect.x + rect.width - width;
+		}
+	}
 
+	if (height < minHeight) {
+		height = minHeight;
+		if (edges.top) {
+			y = rect.y + rect.height - height;
+		}
+	}
+
+	return {
+		x: Math.round(x),
+		y: Math.round(y),
+		width: Math.round(width),
+		height: Math.round(height),
+	};
+}
+
+function applyResizeRect(win, rect, edges, logger) {
+	if (!rect) {
+		logger.log("win_mouseresize: no edges enabled");
+		return null;
+	}
+	const { x, y, width, height } = rect;
 	logger.log(
 		`win_mouseresize: ${edges.left ? "left" : edges.right ? "right" : "-"},${
 			edges.top ? "top" : edges.bottom ? "bottom" : "-"
 		} -> ${width}x${height} @ ${x},${y}`,
 	);
 	win.move_resize_frame(true, x, y, width, height);
-	return { x, y, width, height };
+	return rect;
+}
+
+function getEventTypeName(type) {
+	for (const [name, value] of Object.entries(Clutter.EventType)) {
+		if (value === type) {
+			return name;
+		}
+	}
+	return `UNKNOWN_${type}`;
+}
+
+function queueIndicatorSync(state, rect) {
+	state.pendingRect = rect;
+	if (state.indicatorSourceId) {
+		return;
+	}
+	state.indicatorSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+		state.indicatorSourceId = 0;
+		if (!state.active || !state.pendingRect) {
+			return GLib.SOURCE_REMOVE;
+		}
+		const rect = state.pendingRect;
+		state.pendingRect = null;
+		updateResizeIndicator(state, rect);
+		return GLib.SOURCE_REMOVE;
+	});
+}
+
+function queueMouseResize(state, point, logger) {
+	state.pendingPoint = point;
+	if (state.resizeSourceId) {
+		return;
+	}
+	state.resizeSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+		state.resizeSourceId = 0;
+		if (!state.active || !state.win || !state.pendingPoint) {
+			return GLib.SOURCE_REMOVE;
+		}
+		const point = state.pendingPoint;
+		state.pendingPoint = null;
+		const targetRect = computeMouseResizeRect(
+			state.startRect,
+			state.edges,
+			state.startPoint,
+			point,
+			state.minSize,
+		);
+		if (targetRect) {
+			applyResizeRect(state.win, targetRect, state.edges, logger);
+		}
+		return GLib.SOURCE_REMOVE;
+	});
 }
 
 export function win_mouseresize(_config, logger) {
 	const state = getFreshMouseResizeState();
-	const win = global.display.get_focus_window
-		? global.display.get_focus_window()
-		: global.display.focus_window;
+	const win = getFocusedWindow();
 	if (!win) {
 		logger.log("win_mouseresize: no focused window");
 		return;
 	}
 	logger.log("win_mouseresize: enter resize mode");
 
+	normalizeWindowForResize(win);
+
 	state.active = true;
 	state.win = win;
 	state.winId = win.get_id();
 	state.edges = null;
 	state.startRect = win.get_frame_rect();
-	updateResizeIndicator(state, state.startRect);
+	state.minSize = getWindowMinSize(win);
+	{
+		const { x, y } = getPointerData();
+		state.startPoint = { x, y };
+	}
+
+	const exitResize = (reason) => {
+		if (!state.active) {
+			return;
+		}
+		endMouseResize();
+		logger.log(`win_mouseresize: exit resize mode (${reason})`);
+	};
 
 	const handlePointerMove = () => {
-		const { x, y, modifiers } = getPointerData();
-
-		if (!isResizeGestureActive(modifiers)) {
-			endMouseResize();
-			logger.log("win_mouseresize: exit resize mode (meta released)");
-			return false;
-		}
+		const { x, y } = getPointerData();
 		const point = { x, y };
 
-		if (!state.edges) {
-			state.edges = { left: false, right: false, top: false, bottom: false };
-		}
-
-		const rect = state.startRect;
-		let enabledCount =
-			(state.edges.left ? 1 : 0) +
-			(state.edges.right ? 1 : 0) +
-			(state.edges.top ? 1 : 0) +
-			(state.edges.bottom ? 1 : 0);
-
-		if (enabledCount < 2) {
-			if (!state.edges.left && !state.edges.right) {
-				if (point.x <= rect.x) {
-					state.edges.left = true;
-					enabledCount++;
-				} else if (point.x >= rect.x + rect.width) {
-					state.edges.right = true;
-					enabledCount++;
-				}
-			}
-			if (!state.edges.top && !state.edges.bottom) {
-				if (point.y <= rect.y) {
-					state.edges.top = true;
-					enabledCount++;
-				} else if (point.y >= rect.y + rect.height) {
-					state.edges.bottom = true;
-					enabledCount++;
-				}
-			}
-		}
-
-		if (enabledCount === 0) {
-			logger.log("win_mouseresize: no edges enabled");
+		if (!ensureLockedEdges(state, point, state.startRect)) {
 			return true;
 		}
 
-		const nextRect = applyMouseResize(
-			win,
+		const nextRect = computeMouseResizeRect(
 			state.startRect,
 			state.edges,
+			state.startPoint,
 			point,
-			logger,
+			state.minSize,
 		);
 		if (nextRect) {
-			updateResizeIndicator(state, nextRect);
+			queueIndicatorSync(state, nextRect);
+			queueMouseResize(state, point, logger);
 		}
 		return true;
 	};
+
+	setResizeCursor(true);
+	updateResizeIndicator(state, state.startRect);
+	connectObjectIfSignal(state.win, "unmanaged", () => exitResize("window unmanaged"), state);
 
 	const tracker = getCursorTracker();
 	if (!tracker) {
@@ -247,7 +398,60 @@ export function win_mouseresize(_config, logger) {
 		return;
 	}
 	state.tracker = tracker;
-	tracker.connectObject("position-changed", handlePointerMove, state);
+	const signalName = getCursorPositionSignalName(tracker);
+	if (!signalName) {
+		logger.log("win_mouseresize: no cursor position signal");
+		endMouseResize(state);
+		return;
+	}
+	if (typeof tracker.track_position === "function") {
+		tracker.track_position();
+		state.trackedPosition = true;
+	}
+	connectObjectIfSignal(tracker, signalName, handlePointerMove, state);
+
+	const handleGlobalEvent = (_actor, event) => {
+		if (!state.active) {
+			return Clutter.EVENT_PROPAGATE;
+		}
+		const type = event.type();
+		if (
+			type === Clutter.EventType.MOTION ||
+			type === Clutter.EventType.BUTTON_RELEASE ||
+			type === Clutter.EventType.KEY_RELEASE
+		) {
+			return Clutter.EVENT_PROPAGATE;
+		}
+		exitResize(`event ${type} (${getEventTypeName(type)})`);
+		return Clutter.EVENT_PROPAGATE;
+	};
+
+	connectObjectIfSignal(global.stage, "captured-event", handleGlobalEvent, state);
+
+	connectObjectIfSignal(
+		global.workspace_manager,
+		"active-workspace-changed",
+		() => exitResize("workspace changed"),
+		state,
+	);
+	const monitorManager = getMonitorManager();
+	connectObjectIfSignal(
+		monitorManager,
+		"monitors-changed",
+		() => exitResize("monitors changed"),
+		state,
+	);
+	connectOverviewSignals(state, () => exitResize("overview"));
+	connectDisplaySignals(
+		state,
+		() => exitResize("display event"),
+		() => {
+			const focused = getFocusedWindow();
+			if (!focused || focused.get_id() !== state.winId) {
+				exitResize("focus changed");
+			}
+		},
+	);
 }
 
 export function cleanupWinMouseResize() {

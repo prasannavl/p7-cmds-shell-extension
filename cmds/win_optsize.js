@@ -1,34 +1,9 @@
 // cmds/win_optsize.js
 
-import Meta from "gi://Meta";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { DEFAULT_WIN_OPTSIZE_CONFIG } from "../common.js";
+import { getMaximizeState, MaximizeFlags } from "../compat.js";
 import { STATE_KEYS, STATE_MAP } from "./state.js";
-
-const MaximizeFlags = Meta.MaximizeFlags ?? {
-	HORIZONTAL: 1,
-	VERTICAL: 2,
-	BOTH: 3,
-};
-
-function getMaximizeState(metaWindow) {
-	const flags = metaWindow.get_maximize_flags?.() ?? 0;
-
-	let horizontal = (flags & MaximizeFlags.HORIZONTAL) !== 0;
-	let vertical = (flags & MaximizeFlags.VERTICAL) !== 0;
-
-	if (!flags) {
-		horizontal = !!metaWindow.maximized_horizontally;
-		vertical = !!metaWindow.maximized_vertically;
-	}
-
-	const any = horizontal || vertical;
-	const full = flags
-		? (flags & MaximizeFlags.BOTH) === MaximizeFlags.BOTH
-		: horizontal && vertical;
-
-	return { any, full, horizontal, vertical };
-}
 
 function resolveWinOptsizeScales(winConfig, workArea) {
 	let scales = winConfig.scales ?? DEFAULT_WIN_OPTSIZE_CONFIG.scales;
