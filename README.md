@@ -6,7 +6,7 @@ extension ships a preferences UI for binding keys and tuning behavior.
 - Compatibility: GNOME Shell 48+.
 - Best effort compatibility: GNOME Shell 45+.
 - Extension Store: https://extensions.gnome.org/extension/9065/p7-commands/
-- Project is also a Nix flake for direct install on NixOS. 
+- Project is also a Nix flake for direct install on NixOS.
 
 ## Features
 

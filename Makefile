@@ -13,8 +13,7 @@ lint:
 	biome lint $(JS_FILES)
 
 fmt:
-	biome format --fix $(JS_FILES)
-	nix fmt -- .
+	treefmt
 
 schemas:
 	glib-compile-schemas $(SCHEMAS_DIR)

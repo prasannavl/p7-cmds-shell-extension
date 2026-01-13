@@ -20,6 +20,13 @@
         unzip
         zip
       ];
+    formatterPkgsFor = pkgs:
+      with pkgs; [
+        treefmt
+        alejandra
+        biome
+        deno
+      ];
     metadata = builtins.fromJSON (builtins.readFile ./metadata.json);
     uuid = metadata.uuid;
   in {
@@ -53,15 +60,21 @@
 
     formatter = forAllSystems (system: let
       pkgs = pkgsFor system;
+      formatterPkgs = formatterPkgsFor pkgs;
     in
-      pkgs.alejandra);
+      pkgs.writeShellApplication {
+        name = "treefmt";
+        runtimeInputs = formatterPkgs;
+        text = "treefmt";
+      });
 
     devShells = forAllSystems (system: let
       pkgs = pkgsFor system;
       commonPackages = commonPackagesFor pkgs;
+      formatterPkgs = formatterPkgsFor pkgs;
     in {
       default = pkgs.mkShell {
-        packages = commonPackages ++ [pkgs.alejandra pkgs.biome];
+        packages = commonPackages ++ formatterPkgs;
       };
     });
   };
