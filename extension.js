@@ -2,7 +2,7 @@
 
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 import { KeyBindManager } from "./keybindmanager.js";
-import { cleanupCommands, STATE_MAP } from "./cmds.js";
+import { destroyCommands, STATE_MAP } from "./cmds.js";
 import { Logger } from "./logger.js";
 
 export default class P7ShortcutsExtension extends Extension {
@@ -14,8 +14,8 @@ export default class P7ShortcutsExtension extends Extension {
   }
 
   enable() {
-    // For compatibility with gnome 45, we fall back to console
     const settings = this.getSettings();
+    // For compatibility with gnome 45, we fall back to console
     const baseLogger = this.getLogger?.() || console;
     this._logger = new Logger(settings, baseLogger);
     this._logger.log("Extension enabled");
@@ -31,7 +31,7 @@ export default class P7ShortcutsExtension extends Extension {
       this.keyBindManager.disable();
       this.keyBindManager = null;
     }
-    cleanupCommands();
+    destroyCommands();
     STATE_MAP.clear();
     this._logger = null;
   }
