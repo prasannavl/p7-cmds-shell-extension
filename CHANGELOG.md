@@ -4,6 +4,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### [20] - 2026-01-14
+
+- Internal cleanup
+
 ### [18] - 2026-01-12
 
 - Add missing touchpad support for mouse resize drag.

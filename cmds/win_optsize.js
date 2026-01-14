@@ -5,31 +5,6 @@ import { DEFAULT_WIN_OPTSIZE_CONFIG } from "../common.js";
 import { normalizeWindow } from "../compat.js";
 import { STATE_KEYS, STATE_MAP } from "../cmds.js";
 
-function resolveWinOptsizeScales(winConfig, workArea) {
-  let scales = winConfig.scales ?? DEFAULT_WIN_OPTSIZE_CONFIG.scales;
-  if (Array.isArray(winConfig.breakpoints)) {
-    for (const breakpoint of winConfig.breakpoints) {
-      if (!breakpoint || typeof breakpoint.maxWidth !== "number") {
-        continue;
-      }
-      if (
-        workArea.width <= breakpoint.maxWidth &&
-        (typeof breakpoint.maxHeight !== "number" ||
-          workArea.height <= breakpoint.maxHeight)
-      ) {
-        if (Array.isArray(breakpoint.scales) && breakpoint.scales.length > 0) {
-          scales = breakpoint.scales;
-        }
-        break;
-      }
-    }
-  }
-  if (!Array.isArray(scales) || scales.length === 0) {
-    scales = DEFAULT_WIN_OPTSIZE_CONFIG.scales;
-  }
-  return scales;
-}
-
 export function win_optsize(config, _logger) {
   const win = global.display.get_focus_window
     ? global.display.get_focus_window()
@@ -88,4 +63,29 @@ export function win_optsize(config, _logger) {
   const targetY = Math.round(workArea.y + (workArea.height - targetHeight) / 2);
 
   win.move_resize_frame(true, targetX, targetY, targetWidth, targetHeight);
+}
+
+function resolveWinOptsizeScales(winConfig, workArea) {
+  let scales = winConfig.scales ?? DEFAULT_WIN_OPTSIZE_CONFIG.scales;
+  if (Array.isArray(winConfig.breakpoints)) {
+    for (const breakpoint of winConfig.breakpoints) {
+      if (!breakpoint || typeof breakpoint.maxWidth !== "number") {
+        continue;
+      }
+      if (
+        workArea.width <= breakpoint.maxWidth &&
+        (typeof breakpoint.maxHeight !== "number" ||
+          workArea.height <= breakpoint.maxHeight)
+      ) {
+        if (Array.isArray(breakpoint.scales) && breakpoint.scales.length > 0) {
+          scales = breakpoint.scales;
+        }
+        break;
+      }
+    }
+  }
+  if (!Array.isArray(scales) || scales.length === 0) {
+    scales = DEFAULT_WIN_OPTSIZE_CONFIG.scales;
+  }
+  return scales;
 }
