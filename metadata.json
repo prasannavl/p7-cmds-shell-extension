@@ -1,6 +1,6 @@
 {
 	"name": "P7 Commands",
-	"description": "Sensible commands and keyboard shortcuts",
+	"description": "Sensible commands like window auto resize, mouse move resize, etc",
 	"uuid": "p7-cmds@prasannavl.com",
 	"url": "https://github.com/prasannavl/p7-cmds-shell-extension",
 	"shell-version": [
