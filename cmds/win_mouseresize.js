@@ -58,17 +58,7 @@ export function win_mouseresize(_config, logger) {
       return true;
     }
 
-    const nextRect = computeResizeRect(
-      state.startRect,
-      state.edges,
-      state.startPoint,
-      point,
-      state.minSize,
-    );
-    if (nextRect) {
-      queueIndicatorSync(state, nextRect);
-      queueResize(state, point, logger);
-    }
+    queueResize(state, point, logger);
     return true;
   };
 
@@ -79,6 +69,27 @@ export function win_mouseresize(_config, logger) {
     state.win,
     "unmanaged",
     () => exitResize("window unmanaged"),
+    state,
+  );
+  const handleWindowRectChange = () => {
+    if (!state.active || !state.win) {
+      return;
+    }
+    const rect = state.win.get_frame_rect?.();
+    if (rect) {
+      queueIndicatorSync(state, rect);
+    }
+  };
+  connectObjectIfSignal(
+    state.win,
+    "size-changed",
+    handleWindowRectChange,
+    state,
+  );
+  connectObjectIfSignal(
+    state.win,
+    "position-changed",
+    handleWindowRectChange,
     state,
   );
 
