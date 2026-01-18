@@ -1,19 +1,26 @@
-# P7 Commands (GNOME Shell extension)
+# p7 Commands
 
-Sensible keyboard shortcuts with a small set of Mutter-aware commands. The
-extension ships a preferences UI for binding keys and tuning behavior.
+Sensible keyboard shortcuts with a small set of Mutter-aware commands to make
+the GNOME shell experience more intuitive for power users.
 
 - Compatibility: GNOME Shell 48+.
 - Best effort compatibility: GNOME Shell 45+.
 - Extension Store: https://extensions.gnome.org/extension/9065/p7-commands/
 - Project is also a Nix flake for direct install on NixOS.
 
-## Features
+## Screencasts
 
-- Keybindings managed by the extension (including clearing conflicts and
-  restoring them on disable).
-- Commands are defined under `cmds/` and can be bound to multiple shortcuts.
-- Preferences UI to manage shortcuts and the win_optsize config.
+<p align="center">
+  <img src="docs/assets/screencast-optsize.gif" alt="Borders reacting to edge-aware logic" width="100%" style="max-width: 640px; height: auto;"/>
+  <br/>
+   Window auto optimal size (based on output size): `Super` + `x`
+</p>
+
+<p align="center">
+  <img src="docs/assets/screencast-resize.gif" alt="Borders reacting to edge-aware logic" width="100%" style="max-width: 640px; height: auto;"/>
+  <br/>
+   Window auto resize on mouse move: `Super` + `Shift` + `x`
+</p>
 
 ## Commands
 
@@ -43,6 +50,17 @@ you move the cursor past it, then dragging to the target size.
 
 - This brings Sway like mouse resize behavior to GNOME shell.
 
+## Install
+
+For a local install:
+
+```sh
+nix develop
+make ginstall
+
+Log out, login again and enable.
+```
+
 ## Configuration
 
 Configuration is stored in a single GSettings schema
@@ -53,8 +71,6 @@ Configuration is stored in a single GSettings schema
 Open the extension preferences to:
 
 - Add/remove keybindings for each command.
-- Set `keybinding-flags` (Meta.KeyBindingFlags) and `keybinding-actionmode`
-  (Shell.ActionMode).
 - Edit win_optsize breakpoints and scales, or edit the JSON directly.
 
 ### win_optsize JSON
@@ -98,16 +114,16 @@ Notes:
 
 Common tasks (see `Makefile`):
 
-```sh
-make schemas
-make pack
-make install
-make enable
-make disable
-make reload
-```
+Useful Make targets:
 
-The built extension zip is written to `dist/`.
+- `make lint` - run linters
+- `make fmt` - run formatters
+- `make schemas` - compile GSettings schema
+- `make pack` - build zip into `dist/`
+- `make ginstall` - build and install using `gnome-extensions`
+- `make install` - Manually install into `DESTDIR` dir
+- `make enable` / `make disable` / `make reload`
+- `make clean`
 
 ## License
 
