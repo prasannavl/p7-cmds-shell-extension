@@ -110,6 +110,17 @@ Notes:
 - Optional `aspectBasedInversion: true` will swap width/height scales on
   portrait screens.
 
+### win_mouseresize colors
+
+Keys:
+
+- `win-mouseresize-border-color`
+- `win-mouseresize-background-color`
+- `win-mouseresize-border-size`
+
+Color values are CSS color strings (for example `rgba(255, 255, 255, 0.8)`).
+Border size is in pixels.
+
 ## Development
 
 Common tasks (see `Makefile`):

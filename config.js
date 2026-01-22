@@ -63,12 +63,20 @@ export class ConfigManager {
     const winOptsize = parseWinOptsizeConfig(
       this._settings.get_string("win-optsize-config"),
     );
+    const winMouseResize = {
+      borderColor: this._settings.get_string("win-mouseresize-border-color"),
+      backgroundColor: this._settings.get_string(
+        "win-mouseresize-background-color",
+      ),
+      borderSize: this._settings.get_int("win-mouseresize-border-size"),
+    };
 
     this.config = {
       keybindings,
       keybindingFlags,
       actionMode,
       winOptsize,
+      winMouseResize,
     };
   }
 
@@ -124,6 +132,9 @@ export class ConfigManager {
       "keybinding-flags",
       "keybinding-actionmode",
       "win-optsize-config",
+      "win-mouseresize-border-color",
+      "win-mouseresize-background-color",
+      "win-mouseresize-border-size",
     ];
     let saved = false;
     for (const key of keys) {

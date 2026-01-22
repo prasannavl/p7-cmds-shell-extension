@@ -223,6 +223,111 @@ function buildSpinRow({ title, value, digits, min, max, step, onChange }) {
   return row;
 }
 
+function buildIntRow({
+  settings,
+  registerSettingsChange,
+  key,
+  title,
+  subtitle,
+  min,
+  max,
+  step,
+}) {
+  const row = new Adw.ActionRow({ title, subtitle });
+  const adjustment = new Gtk.Adjustment({
+    lower: min,
+    upper: max,
+    step_increment: step,
+    page_increment: step,
+  });
+  const spin = new Gtk.SpinButton({
+    adjustment,
+    digits: 0,
+    numeric: true,
+  });
+  spin.set_valign(Gtk.Align.CENTER);
+  spin.set_value(settings.get_int(key));
+  row.add_suffix(spin);
+
+  let settingValue = false;
+  const applyFromSettings = () => {
+    settingValue = true;
+    spin.set_value(settings.get_int(key));
+    settingValue = false;
+  };
+
+  registerSettingsChange(key, applyFromSettings);
+
+  spin.connect("value-changed", () => {
+    if (settingValue) {
+      return;
+    }
+    settings.set_int(key, Math.round(spin.get_value()));
+  });
+
+  return row;
+}
+
+function getDefaultString(settings, key) {
+  const defaultValue = settings.get_default_value(key);
+  if (!defaultValue) {
+    return "";
+  }
+  const value = defaultValue.deepUnpack?.();
+  return typeof value === "string" ? value : "";
+}
+
+function parseRgba(value, fallback) {
+  const rgba = new Gdk.RGBA();
+  const normalized =
+    typeof value === "string" && value.trim() ? value.trim() : "";
+  if (normalized && rgba.parse(normalized)) {
+    return rgba;
+  }
+  const fallbackValue =
+    typeof fallback === "string" && fallback.trim() ? fallback.trim() : "";
+  if (fallbackValue) {
+    rgba.parse(fallbackValue);
+  }
+  return rgba;
+}
+
+function buildColorRow({ settings, registerSettingsChange, title, subtitle, key }) {
+  const row = new Adw.ActionRow({
+    title,
+    subtitle,
+  });
+  const dialog = new Gtk.ColorDialog();
+  const button = new Gtk.ColorDialogButton({ dialog });
+  button.set_valign(Gtk.Align.CENTER);
+  row.add_suffix(button);
+
+  const defaultValue = getDefaultString(settings, key);
+  let settingColor = false;
+
+  const applyFromSettings = () => {
+    settingColor = true;
+    button.set_rgba(parseRgba(settings.get_string(key), defaultValue));
+    settingColor = false;
+  };
+
+  applyFromSettings();
+  registerSettingsChange(key, applyFromSettings);
+
+  button.connect("notify::rgba", () => {
+    if (settingColor) {
+      return;
+    }
+    const rgba = button.get_rgba();
+    if (!rgba) {
+      return;
+    }
+    settings.set_string(key, rgba.to_string());
+  });
+
+  return row;
+}
+
 function buildScaleRow(scale, index, onChange, onRemove) {
   if (!Array.isArray(scale)) {
     scale = [0.8, 0.8];
@@ -720,6 +825,64 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
   return wrapperGroup;
 }
 
+function buildWinMouseResizeConfigGroup(settings, registerSettingsChange) {
+  const group = new Adw.PreferencesGroup({
+    title: "Resize indicator",
+    description: "Customize border and background colors for win_mouseresize.",
+  });
+
+  group.add(
+    buildColorRow({
+      settings,
+      registerSettingsChange,
+      title: "Border color",
+      subtitle: "CSS color for the resize outline.",
+      key: "win-mouseresize-border-color",
+    }),
+  );
+  group.add(
+    buildColorRow({
+      settings,
+      registerSettingsChange,
+      title: "Background color",
+      subtitle: "CSS color for the resize fill.",
+      key: "win-mouseresize-background-color",
+    }),
+  );
+  group.add(
+    buildIntRow({
+      settings,
+      registerSettingsChange,
+      key: "win-mouseresize-border-size",
+      title: "Border size",
+      subtitle: "Border thickness in pixels.",
+      min: 1,
+      max: 20,
+      step: 1,
+    }),
+  );
+
+  const resetRow = new Adw.ActionRow({
+    title: "Reset to defaults",
+  });
+  const resetButton = new Gtk.Button({ label: "Reset" });
+  resetButton.connect("clicked", () => {
+    for (const key of [
+      "win-mouseresize-border-color",
+      "win-mouseresize-background-color",
+    ]) {
+      const defaultValue = settings.get_default_value(key);
+      if (defaultValue) {
+        settings.set_value(key, defaultValue);
+      }
+    }
+  });
+  resetRow.add_suffix(resetButton);
+  group.add(resetRow);
+
+  return group;
+}
+
 export default class P7ShortcutsPreferences extends ExtensionPreferences {
   fillPreferencesWindow(window) {
     const settings = this.getSettings();
@@ -806,6 +969,17 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
         window.add(optsizePage);
         optsizePage.add(
           buildWinOptsizeConfigGroup(settings, registerSettingsChange, window),
+        );
+      }
+
+      if (command.id === "cmd-win-mouseresize") {
+        const mouseResizePage = new Adw.PreferencesPage({
+          title: command.title,
+          icon_name: command.icon,
+        });
+        window.add(mouseResizePage);
+        mouseResizePage.add(
+          buildWinMouseResizeConfigGroup(settings, registerSettingsChange),
         );
       }
     }

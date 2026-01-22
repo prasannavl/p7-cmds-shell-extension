@@ -18,9 +18,11 @@ import {
 import { STATE_KEYS, STATE_MAP } from "../cmds.js";
 
 const MIN_RESIZE_SIZE = 10;
-const INDICATOR_BORDER = 3;
+const DEFAULT_INDICATOR_BORDER = 3;
+const DEFAULT_INDICATOR_BORDER_COLOR = "rgba(255, 255, 255, 0.8)";
+const DEFAULT_INDICATOR_BACKGROUND_COLOR = "rgba(255, 255, 255, 0.1)";
 
-export function win_mouseresize(_config, logger) {
+export function win_mouseresize(config, logger) {
   const state = createState();
   const win = getFocusedWindow();
   if (!win) {
@@ -34,6 +36,9 @@ export function win_mouseresize(_config, logger) {
   state.active = true;
   state.win = win;
   state.winId = win.get_id();
+  const indicatorConfig = resolveIndicatorConfig(config);
+  state.indicatorColors = indicatorConfig.colors;
+  state.indicatorBorderSize = indicatorConfig.borderSize;
   state.edges = null;
   state.startRect = win.get_frame_rect();
   state.minSize = getWindowMinSize(win);
@@ -383,10 +388,16 @@ function ensureResizeIndicator(state) {
   if (state.indicator) {
     return;
   }
+  const borderColor =
+    state.indicatorColors?.borderColor ?? DEFAULT_INDICATOR_BORDER_COLOR;
+  const backgroundColor =
+    state.indicatorColors?.backgroundColor ??
+    DEFAULT_INDICATOR_BACKGROUND_COLOR;
+  const borderSize = getIndicatorBorderSize(state);
   const indicator = new St.Widget({
     reactive: false,
-    style: "background-color: rgba(255, 255, 255, 0.1);" +
-      `border: ${INDICATOR_BORDER}px solid rgba(255, 255, 255, 0.8);` +
+    style: `background-color: ${backgroundColor};` +
+      `border: ${borderSize}px solid ${borderColor};` +
       "border-radius: 5px;",
   });
   indicator.hide();
@@ -397,10 +408,11 @@ function ensureResizeIndicator(state) {
 function updateResizeIndicator(state, rect) {
   ensureResizeIndicator(state);
   const indicator = state.indicator;
-  indicator.set_position(rect.x - INDICATOR_BORDER, rect.y - INDICATOR_BORDER);
+  const borderSize = getIndicatorBorderSize(state);
+  indicator.set_position(rect.x - borderSize, rect.y - borderSize);
   indicator.set_size(
-    rect.width + INDICATOR_BORDER * 2,
-    rect.height + INDICATOR_BORDER * 2,
+    rect.width + borderSize * 2,
+    rect.height + borderSize * 2,
   );
   indicator.show();
 }
@@ -424,6 +436,8 @@ function _newState() {
     win: null,
     winId: null,
     indicator: null,
+    indicatorColors: null,
+    indicatorBorderSize: DEFAULT_INDICATOR_BORDER,
     edges: null,
     startRect: null,
     startPoint: null,
@@ -438,6 +452,43 @@ function _newState() {
 
 function resetState(state) {
   Object.assign(state, _newState());
+}
+
+function normalizeIndicatorColor(value, fallback) {
+  if (typeof value !== "string") {
+    return fallback;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : fallback;
+}
+
+function normalizeIndicatorBorderSize(value) {
+  if (!Number.isFinite(value)) {
+    return DEFAULT_INDICATOR_BORDER;
+  }
+  const rounded = Math.round(value);
+  return rounded > 0 ? rounded : DEFAULT_INDICATOR_BORDER;
+}
+
+function getIndicatorBorderSize(state) {
+  return normalizeIndicatorBorderSize(state?.indicatorBorderSize);
+}
+
+function resolveIndicatorConfig(config) {
+  const values = config?.winMouseResize ?? {};
+  return {
+    colors: {
+      borderColor: normalizeIndicatorColor(
+        values.borderColor,
+        DEFAULT_INDICATOR_BORDER_COLOR,
+      ),
+      backgroundColor: normalizeIndicatorColor(
+        values.backgroundColor,
+        DEFAULT_INDICATOR_BACKGROUND_COLOR,
+      ),
+    },
+    borderSize: normalizeIndicatorBorderSize(values.borderSize),
+  };
 }
 
 // Signal helpers

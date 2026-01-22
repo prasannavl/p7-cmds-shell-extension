@@ -16,6 +16,21 @@
       <summary>Win optsize config</summary>
       <description>JSON config for win_optsize breakpoints and scales.</description>
     </key>
+    <key name="win-mouseresize-border-color" type="s">
+      <default>"rgba(255, 255, 255, 0.8)"</default>
+      <summary>Win mouseresize border color</summary>
+      <description>CSS color used for the resize indicator border.</description>
+    </key>
+    <key name="win-mouseresize-background-color" type="s">
+      <default>"rgba(255, 255, 255, 0.1)"</default>
+      <summary>Win mouseresize background color</summary>
+      <description>CSS color used for the resize indicator background.</description>
+    </key>
+    <key name="win-mouseresize-border-size" type="i">
+      <default>3</default>
+      <summary>Win mouseresize border size</summary>
+      <description>Border size, in pixels, for the resize indicator.</description>
+    </key>
     <key name="keybinding-flags" type="s">
       <default>"IGNORE_AUTOREPEAT"</default>
       <summary>Keybinding flags</summary>
