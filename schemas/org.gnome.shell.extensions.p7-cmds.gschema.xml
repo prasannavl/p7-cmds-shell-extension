@@ -17,12 +17,12 @@
       <description>JSON config for win_optsize breakpoints and scales.</description>
     </key>
     <key name="win-mouseresize-border-color" type="s">
-      <default>"rgba(255, 255, 255, 0.8)"</default>
+      <default>"rgba(230,105,105,0.826667)"</default>
       <summary>Win mouseresize border color</summary>
       <description>CSS color used for the resize indicator border.</description>
     </key>
     <key name="win-mouseresize-background-color" type="s">
-      <default>"rgba(255, 255, 255, 0.1)"</default>
+      <default>"rgba(71,71,71,0.176667)"</default>
       <summary>Win mouseresize background color</summary>
       <description>CSS color used for the resize indicator background.</description>
     </key>
