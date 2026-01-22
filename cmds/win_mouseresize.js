@@ -19,8 +19,8 @@ import { STATE_KEYS, STATE_MAP } from "../cmds.js";
 
 const MIN_RESIZE_SIZE = 10;
 const DEFAULT_INDICATOR_BORDER = 3;
-const DEFAULT_INDICATOR_BORDER_COLOR = "rgba(255, 255, 255, 0.8)";
-const DEFAULT_INDICATOR_BACKGROUND_COLOR = "rgba(255, 255, 255, 0.1)";
+const DEFAULT_INDICATOR_BORDER_COLOR = "rgba(230, 105, 105, 0.8)";
+const DEFAULT_INDICATOR_BACKGROUND_COLOR = "rgba(70, 70, 70, 0.2)";
 
 export function win_mouseresize(config, logger) {
   const state = createState();
