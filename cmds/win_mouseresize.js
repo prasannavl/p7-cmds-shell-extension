@@ -388,10 +388,9 @@ function ensureResizeIndicator(state) {
   if (state.indicator) {
     return;
   }
-  const borderColor =
-    state.indicatorColors?.borderColor ?? DEFAULT_INDICATOR_BORDER_COLOR;
-  const backgroundColor =
-    state.indicatorColors?.backgroundColor ??
+  const borderColor = state.indicatorColors?.borderColor ??
+    DEFAULT_INDICATOR_BORDER_COLOR;
+  const backgroundColor = state.indicatorColors?.backgroundColor ??
     DEFAULT_INDICATOR_BACKGROUND_COLOR;
   const borderSize = getIndicatorBorderSize(state);
   const indicator = new St.Widget({

@@ -279,13 +279,15 @@ function getDefaultString(settings, key) {
 
 function parseRgba(value, fallback) {
   const rgba = new Gdk.RGBA();
-  const normalized =
-    typeof value === "string" && value.trim() ? value.trim() : "";
+  const normalized = typeof value === "string" && value.trim()
+    ? value.trim()
+    : "";
   if (normalized && rgba.parse(normalized)) {
     return rgba;
   }
-  const fallbackValue =
-    typeof fallback === "string" && fallback.trim() ? fallback.trim() : "";
+  const fallbackValue = typeof fallback === "string" && fallback.trim()
+    ? fallback.trim()
+    : "";
   if (fallbackValue) {
     rgba.parse(fallbackValue);
   }
@@ -300,28 +302,42 @@ function buildColorRow({
   key,
   withAlpha,
 }) {
-  const row = new Adw.ActionRow({
-    title,
-    subtitle,
-  });
+  const row = new Adw.EntryRow({ title });
+  if (subtitle) {
+    row.set_tooltip_text(subtitle);
+  }
   const dialog = new Gtk.ColorDialog({
     with_alpha: withAlpha === true,
   });
   const button = new Gtk.ColorDialogButton({ dialog });
   button.set_valign(Gtk.Align.CENTER);
   row.add_suffix(button);
+  row.activatable_widget = button;
 
   const defaultValue = getDefaultString(settings, key);
   let settingColor = false;
 
   const applyFromSettings = () => {
     settingColor = true;
-    button.set_rgba(parseRgba(settings.get_string(key), defaultValue));
+    const value = settings.get_string(key);
+    row.text = value;
+    button.set_rgba(parseRgba(value, defaultValue));
     settingColor = false;
   };
 
   applyFromSettings();
   registerSettingsChange(key, applyFromSettings);
+
+  row.connect("notify::text", () => {
+    if (settingColor) {
+      return;
+    }
+    const value = row.text;
+    settings.set_string(key, value);
+    settingColor = true;
+    button.set_rgba(parseRgba(value, defaultValue));
+    settingColor = false;
+  });
 
   button.connect("notify::rgba", () => {
     if (settingColor) {
@@ -331,7 +347,11 @@ function buildColorRow({
     if (!rgba) {
       return;
     }
-    settings.set_string(key, rgba.to_string());
+    const value = rgba.to_string();
+    settingColor = true;
+    row.text = value;
+    settingColor = false;
+    settings.set_string(key, value);
   });
 
   return row;
@@ -878,10 +898,12 @@ function buildWinMouseResizeConfigGroup(settings, registerSettingsChange) {
   });
   const resetButton = new Gtk.Button({ label: "Reset" });
   resetButton.connect("clicked", () => {
-    for (const key of [
-      "win-mouseresize-border-color",
-      "win-mouseresize-background-color",
-    ]) {
+    for (
+      const key of [
+        "win-mouseresize-border-color",
+        "win-mouseresize-background-color",
+      ]
+    ) {
       const defaultValue = settings.get_default_value(key);
       if (defaultValue) {
         settings.set_value(key, defaultValue);

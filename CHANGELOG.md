@@ -2,7 +2,9 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [22] - [Unreleased]
+
+- Add config for mouse resize options
 
 ### [20] - 2026-01-14
 
