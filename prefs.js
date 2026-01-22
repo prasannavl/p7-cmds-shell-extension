@@ -292,12 +292,21 @@ function parseRgba(value, fallback) {
   return rgba;
 }
 
-function buildColorRow({ settings, registerSettingsChange, title, subtitle, key }) {
+function buildColorRow({
+  settings,
+  registerSettingsChange,
+  title,
+  subtitle,
+  key,
+  withAlpha,
+}) {
   const row = new Adw.ActionRow({
     title,
     subtitle,
   });
-  const dialog = new Gtk.ColorDialog();
+  const dialog = new Gtk.ColorDialog({
+    with_alpha: withAlpha === true,
+  });
   const button = new Gtk.ColorDialogButton({ dialog });
   button.set_valign(Gtk.Align.CENTER);
   row.add_suffix(button);
@@ -838,6 +847,7 @@ function buildWinMouseResizeConfigGroup(settings, registerSettingsChange) {
       title: "Border color",
       subtitle: "CSS color for the resize outline.",
       key: "win-mouseresize-border-color",
+      withAlpha: true,
     }),
   );
   group.add(
@@ -847,6 +857,7 @@ function buildWinMouseResizeConfigGroup(settings, registerSettingsChange) {
       title: "Background color",
       subtitle: "CSS color for the resize fill.",
       key: "win-mouseresize-background-color",
+      withAlpha: true,
     }),
   );
   group.add(
