@@ -185,27 +185,21 @@ function end(existingState) {
   getDisplay()?.disconnectObject?.(state);
   getMonitorManager()?.disconnectObject?.(state);
   global.stage?.disconnectObject?.(state);
-  if (state.tracker) {
-    state.tracker.disconnectObject(state);
-  }
+  state.tracker?.disconnectObject(state);
   if (
     state.trackedPosition &&
     typeof state.tracker?.untrack_position === "function"
   ) {
     state.tracker.untrack_position();
   }
-  if (state.win) {
-    state.win.disconnectObject(state);
-  }
+  state.win?.disconnectObject(state);
   if (state.resizeSourceId) {
     GLib.source_remove(state.resizeSourceId);
   }
   if (state.indicatorSourceId) {
     GLib.source_remove(state.indicatorSourceId);
   }
-  if (state.indicator) {
-    state.indicator.destroy();
-  }
+  state.indicator?.destroy();
   resetState(state);
 }
 
