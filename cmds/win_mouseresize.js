@@ -6,7 +6,6 @@ import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import {
   connectObjectIfSignal,
-  getCursorPositionSignalName,
   getCursorTracker,
   getDisplay,
   getFocusedWindow,
@@ -89,8 +88,19 @@ export function win_mouseresize(config, logger) {
     return;
   }
   state.tracker = tracker;
-  const signalName = getCursorPositionSignalName(tracker);
-  if (!signalName) {
+
+  const positionConnected = connectObjectIfSignal(
+    tracker,
+    "position-invalidated",
+    handlePointerMove,
+    state,
+  ) || connectObjectIfSignal(
+    tracker,
+    "position-changed",
+    handlePointerMove,
+    state,
+  );
+  if (!positionConnected) {
     logger.verboseLog("win_mouseresize: no cursor position signal");
     end(state);
     return;
@@ -99,7 +109,6 @@ export function win_mouseresize(config, logger) {
     tracker.track_position();
     state.trackedPosition = true;
   }
-  connectObjectIfSignal(tracker, signalName, handlePointerMove, state);
 
   connectExitSignals(state, exitResize);
 }
@@ -430,8 +439,7 @@ function getEventTypeName(type) {
 }
 
 function connectExitSignals(state, exitResize) {
-  connectObjectIfSignal(
-    state.win,
+  state.win.connectObject(
     "unmanaged",
     () => exitResize("window unmanaged"),
     state,
@@ -454,23 +462,16 @@ function connectExitSignals(state, exitResize) {
     return Clutter.EVENT_PROPAGATE;
   };
 
-  connectObjectIfSignal(
-    global.stage,
-    "captured-event",
-    handleGlobalEvent,
-    state,
-  );
+  global.stage.connectObject("captured-event", handleGlobalEvent, state);
 
-  connectObjectIfSignal(
-    global.workspace_manager,
+  global.workspace_manager.connectObject(
     "active-workspace-changed",
     () => exitResize("workspace changed"),
     state,
   );
 
   const monitorManager = getMonitorManager();
-  connectObjectIfSignal(
-    monitorManager,
+  monitorManager?.connectObject(
     "monitors-changed",
     () => exitResize("monitors changed"),
     state,
@@ -504,7 +505,7 @@ function connectOverviewSignals(state, onEvent) {
     "notify::visible",
   ];
   for (const name of signalNames) {
-    connectObjectIfSignal(overview, name, onEvent, state);
+    overview.connectObject(name, onEvent, state);
   }
 }
 
@@ -522,8 +523,7 @@ function connectLayoutStateSignals(state, onEvent) {
   const signalNames = ["notify::visible", "show", "hide"];
   for (const target of targets) {
     for (const name of signalNames) {
-      connectObjectIfSignal(
-        target,
+      target.connectObject(
         name,
         (actor) => {
           if (name === "notify::visible" && !actor?.visible) {
@@ -553,7 +553,7 @@ function connectDisplaySignals(state, onEvent, onFocusChange) {
     "grab-op-end",
   ];
   for (const name of signalNames) {
-    connectObjectIfSignal(display, name, onEvent, state);
+    display.connectObject(name, onEvent, state);
   }
   if (!connectObjectIfSignal(display, "focus-window", onFocusChange, state)) {
     connectObjectIfSignal(

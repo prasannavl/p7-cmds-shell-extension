@@ -4,51 +4,23 @@ import Clutter from "gi://Clutter";
 import GObject from "gi://GObject";
 import Meta from "gi://Meta";
 
-export const MaximizeFlags = Meta.MaximizeFlags ?? {
-  HORIZONTAL: 1,
-  VERTICAL: 2,
-  BOTH: 3,
-};
+export const MaximizeFlags = Meta.MaximizeFlags;
 
 export function getDisplay() {
-  if (global.display) {
-    return global.display;
-  }
-  if (typeof global.get_display === "function") {
-    return global.get_display();
-  }
-  if (typeof global.backend?.get_display === "function") {
-    return global.backend.get_display();
-  }
-  return null;
+  return global.display;
 }
 
 export function getFocusedWindow() {
   const display = getDisplay();
-  if (!display) {
-    return null;
-  }
-  if (typeof display.get_focus_window === "function") {
-    return display.get_focus_window();
-  }
-  return display.focus_window || null;
+  return display.get_focus_window();
 }
 
 export function getMaximizeState(metaWindow) {
-  const flags = metaWindow?.get_maximize_flags?.() ?? 0;
-
-  let horizontal = (flags & MaximizeFlags.HORIZONTAL) !== 0;
-  let vertical = (flags & MaximizeFlags.VERTICAL) !== 0;
-
-  if (!flags) {
-    horizontal = !!metaWindow?.maximized_horizontally;
-    vertical = !!metaWindow?.maximized_vertically;
-  }
-
+  const flags = metaWindow.get_maximize_flags();
+  const horizontal = (flags & MaximizeFlags.HORIZONTAL) !== 0;
+  const vertical = (flags & MaximizeFlags.VERTICAL) !== 0;
   const any = horizontal || vertical;
-  const full = flags
-    ? (flags & MaximizeFlags.BOTH) === MaximizeFlags.BOTH
-    : horizontal && vertical;
+  const full = (flags & MaximizeFlags.BOTH) === MaximizeFlags.BOTH;
 
   return { any, full, horizontal, vertical };
 }
@@ -58,75 +30,32 @@ export function isWindowMaximized(win) {
 }
 
 export function isWindowFullscreen(win) {
-  if (!win) {
-    return false;
-  }
-  if (typeof win.is_fullscreen === "function") {
-    return win.is_fullscreen();
-  }
-  return !!win.fullscreen;
+  return win.is_fullscreen();
 }
 
 export function normalizeWindow(win) {
   if (!win) {
     return;
   }
-  if (isWindowFullscreen(win) && typeof win.unmake_fullscreen === "function") {
+  if (isWindowFullscreen(win)) {
     win.unmake_fullscreen();
   }
-  if (isWindowMaximized(win) && typeof win.unmaximize === "function") {
+  if (isWindowMaximized(win)) {
     win.unmaximize(MaximizeFlags.BOTH);
   }
 }
 
 export function getCursorTracker() {
-  // GNOME 49+ often consolidates backend access
-  if (typeof global.backend?.get_cursor_tracker === "function") {
-    return global.backend.get_cursor_tracker();
-  }
-  // Standard Mutter API (Stable across many versions)
   const display = getDisplay();
-  if (display && typeof Meta.CursorTracker?.get_for_display === "function") {
-    return Meta.CursorTracker.get_for_display(display);
-  }
-  // Fallback for older Shell versions or specific builds
-  if (display && typeof display.get_cursor_tracker === "function") {
-    return display.get_cursor_tracker();
-  }
-  return null;
-}
-
-export function getCursorPositionSignalName(tracker) {
-  if (!tracker) {
-    return null;
-  }
-  const gtype = tracker.constructor?.$gtype;
-  if (!gtype) {
-    return null;
-  }
-  if (GObject.signal_lookup("position-invalidated", gtype)) {
-    return "position-invalidated";
-  }
-  if (GObject.signal_lookup("position-changed", gtype)) {
-    return "position-changed";
-  }
-  return null;
+  return global.backend.get_cursor_tracker?.() ??
+    Meta.CursorTracker.get_for_display(display);
 }
 
 export function hasSignal(obj, name) {
-  const gtype = obj?.constructor?.$gtype;
-  if (!gtype) {
-    return false;
-  }
+  const gtype = obj.constructor.$gtype;
   if (name.startsWith("notify::")) {
     const propName = name.slice("notify::".length);
-    if (!propName) {
-      return false;
-    }
-    if (typeof obj.find_property === "function") {
-      return !!obj.find_property(propName);
-    }
-    return false;
+    return !!obj.find_property(propName);
   }
   return GObject.signal_lookup(name, gtype);
 }
@@ -140,82 +69,44 @@ export function connectObjectIfSignal(obj, name, handler, owner) {
 }
 
 export function getMonitorManager() {
-  if (typeof global.backend?.get_monitor_manager === "function") {
-    return global.backend.get_monitor_manager();
-  }
   const display = getDisplay();
-  if (display && typeof display.get_monitor_manager === "function") {
-    return display.get_monitor_manager();
-  }
-  return null;
+  return global.backend.get_monitor_manager?.() ??
+    display.get_monitor_manager();
 }
 
 export function setResizeCursor(active) {
   const display = getDisplay();
-  if (!display || typeof display.set_cursor !== "function") {
-    return;
-  }
-  const cursors = Meta.Cursor || {};
+  const cursors = Meta.Cursor;
   const defaultCursorName = "DEFAULT";
   const resizeCursorNames = ["ALL_RESIZE", "MOVE"];
   const cursorName = active
     ? resizeCursorNames.find((name) => name in cursors) ??
       defaultCursorName
     : defaultCursorName;
-  if (cursorName in cursors) {
-    display.set_cursor(cursors[cursorName]);
-  }
+  display.set_cursor(cursors[cursorName]);
 }
 
 export function getPointerData() {
-  const backend =
-    global.backend && typeof global.backend.get_default_seat === "function"
-      ? global.backend
-      : typeof Clutter.get_default_backend === "function"
-      ? Clutter.get_default_backend()
-      : null;
-  const seat = backend && typeof backend.get_default_seat === "function"
-    ? backend.get_default_seat()
-    : null;
-
-  // Try Seat API (GNOME 49+ preferred)
-  if (seat) {
-    if (typeof seat.get_pointer_coords === "function") {
-      const [x, y] = seat.get_pointer_coords();
-      const modifiers = seat.get_key_modifiers();
-      return { x, y, modifiers };
-    }
-    const pointer = typeof seat.get_pointer === "function"
-      ? seat.get_pointer()
-      : null;
-    if (pointer && typeof pointer.get_coords === "function") {
-      const [x, y] = pointer.get_coords();
-      const modifiers = typeof seat.get_key_modifiers === "function"
-        ? seat.get_key_modifiers()
-        : typeof pointer.get_modifier_state === "function"
-        ? pointer.get_modifier_state()
-        : 0;
-      return { x, y, modifiers };
-    }
+  const seat = global.backend.get_default_seat();
+  if (seat.get_pointer_coords) {
+    const [x, y] = seat.get_pointer_coords();
+    const modifiers = seat.get_key_modifiers();
+    return { x, y, modifiers };
   }
 
-  // Fallback to DeviceManager (GNOME 45-48)
-  if (
-    Clutter.DeviceManager &&
-    typeof Clutter.DeviceManager.get_default === "function"
-  ) {
-    const deviceManager = Clutter.DeviceManager.get_default();
-    const pointer = deviceManager.get_core_device(
-      Clutter.InputDeviceType.POINTER_DEVICE,
-    );
-    if (pointer) {
-      const [x, y] = pointer.get_coords();
-      const modifiers = pointer.get_modifier_state();
-      return { x, y, modifiers };
-    }
+  const pointer = seat.get_pointer();
+  if (pointer) {
+    const [x, y] = pointer.get_coords();
+    const modifiers = seat.get_key_modifiers?.() ??
+      pointer.get_modifier_state();
+    return { x, y, modifiers };
   }
 
-  // Absolute fallback
-  const [x, y, modifiers] = global.get_pointer();
+  const deviceManager = Clutter.DeviceManager.get_default();
+  const pointerDevice = deviceManager.get_core_device(
+    Clutter.InputDeviceType.POINTER_DEVICE,
+  );
+  const [x, y] = pointerDevice.get_coords();
+  const modifiers = pointerDevice.get_modifier_state();
   return { x, y, modifiers };
 }
