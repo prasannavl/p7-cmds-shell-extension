@@ -79,18 +79,8 @@ export function win_mouseresize(config, logger) {
       queueIndicatorSync(state, rect);
     }
   };
-  connectObjectIfSignal(
-    state.win,
-    "size-changed",
-    handleWindowRectChange,
-    state,
-  );
-  connectObjectIfSignal(
-    state.win,
-    "position-changed",
-    handleWindowRectChange,
-    state,
-  );
+  state.win.connectObject("size-changed", handleWindowRectChange, state);
+  state.win.connectObject("position-changed", handleWindowRectChange, state);
 
   const tracker = getCursorTracker();
   if (!tracker) {
