@@ -403,15 +403,6 @@ function resolveIndicatorConfig(config) {
 
 // Signal helpers
 
-function getEventTypeName(type) {
-  for (const [name, value] of Object.entries(Clutter.EventType)) {
-    if (value === type) {
-      return name;
-    }
-  }
-  return `UNKNOWN_${type}`;
-}
-
 function connectExitSignals(state, exitResize) {
   state.win.connectObject(
     "unmanaged",
@@ -432,7 +423,7 @@ function connectExitSignals(state, exitResize) {
     ) {
       return Clutter.EVENT_PROPAGATE;
     }
-    exitResize(`event ${type} (${getEventTypeName(type)})`);
+    exitResize(`event ${type}`);
     return Clutter.EVENT_PROPAGATE;
   };
 
