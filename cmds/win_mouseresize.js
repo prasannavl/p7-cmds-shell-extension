@@ -427,16 +427,23 @@ function connectExitSignals(state, exitResize) {
     return Clutter.EVENT_PROPAGATE;
   };
 
-  global.stage.connectObject("captured-event", handleGlobalEvent, state);
+  connectObjectIfSignal(
+    global.stage,
+    "captured-event",
+    handleGlobalEvent,
+    state,
+  );
 
-  global.workspace_manager.connectObject(
+  connectObjectIfSignal(
+    global.workspace_manager,
     "active-workspace-changed",
     () => exitResize("workspace changed"),
     state,
   );
 
   const monitorManager = getMonitorManager();
-  monitorManager?.connectObject(
+  connectObjectIfSignal(
+    monitorManager,
     "monitors-changed",
     () => exitResize("monitors changed"),
     state,
@@ -469,7 +476,7 @@ function connectOverviewSignals(state, onEvent) {
     "notify::visible",
   ];
   for (const name of signalNames) {
-    overview.connectObject(name, onEvent, state);
+    connectObjectIfSignal(overview, name, onEvent, state);
   }
 }
 
@@ -487,7 +494,8 @@ function connectLayoutStateSignals(state, onEvent) {
   const signalNames = ["notify::visible", "show", "hide"];
   for (const target of targets) {
     for (const name of signalNames) {
-      target.connectObject(
+      connectObjectIfSignal(
+        target,
         name,
         () => {
           onEvent();
@@ -506,6 +514,7 @@ function connectDisplaySignals(state, onEvent, onFocusChange) {
   const signalNames = [
     "window-created",
     "window-removed",
+    "window-closed",
     "window-demands-attention",
     "window-marked-urgent",
     "restacked",
@@ -514,7 +523,7 @@ function connectDisplaySignals(state, onEvent, onFocusChange) {
     "grab-op-end",
   ];
   for (const name of signalNames) {
-    display.connectObject(name, onEvent, state);
+    connectObjectIfSignal(display, name, onEvent, state);
   }
   if (!connectObjectIfSignal(display, "focus-window", onFocusChange, state)) {
     connectObjectIfSignal(

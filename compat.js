@@ -78,10 +78,17 @@ export function getCursorTracker() {
 }
 
 export function hasSignal(obj, name) {
-  const gtype = obj.constructor.$gtype;
+  if (!obj) {
+    return false;
+  }
   if (name.startsWith("notify::")) {
     const propName = name.slice("notify::".length);
-    return !!obj.find_property(propName);
+    return typeof obj.find_property === "function" &&
+      !!obj.find_property(propName);
+  }
+  const gtype = obj.constructor?.$gtype;
+  if (!gtype) {
+    return false;
   }
   return GObject.signal_lookup(name, gtype);
 }
