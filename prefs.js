@@ -759,18 +759,6 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
     addBreakpointRow.add_suffix(addBreakpointButton);
     addRow(addBreakpointRow);
 
-    const resetRow = new Adw.ActionRow({
-      title: "Reset to defaults",
-    });
-    const resetButton = new Gtk.Button({ label: "Reset" });
-    resetButton.connect("clicked", () => {
-      const defaultValue = settings.get_default_value("win-optsize-config");
-      if (defaultValue) {
-        settings.set_value("win-optsize-config", defaultValue);
-      }
-    });
-    resetRow.add_suffix(resetButton);
-    addRow(resetRow);
   };
 
   render();
@@ -893,26 +881,6 @@ function buildWinMouseResizeConfigGroup(settings, registerSettingsChange) {
     }),
   );
 
-  const resetRow = new Adw.ActionRow({
-    title: "Reset to defaults",
-  });
-  const resetButton = new Gtk.Button({ label: "Reset" });
-  resetButton.connect("clicked", () => {
-    for (
-      const key of [
-        "win-mouseresize-border-color",
-        "win-mouseresize-background-color",
-      ]
-    ) {
-      const defaultValue = settings.get_default_value(key);
-      if (defaultValue) {
-        settings.set_value(key, defaultValue);
-      }
-    }
-  });
-  resetRow.add_suffix(resetButton);
-  group.add(resetRow);
-
   return group;
 }
 
@@ -964,7 +932,7 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
     const overrideRow = new Adw.SwitchRow({
       title: "Override conflicting keybindings",
       subtitle:
-        "Automatically remove conflicting keybindings from system/shell settings and restore on disable",
+        "Automatically remove conflicting keybindings from system/shell settings and restore on disable; when off, commands with conflicts are skipped",
     });
     overrideRow.set_active(
       settings.get_boolean("override-conflicting-bindings"),
@@ -986,6 +954,21 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
       settings.set_boolean("verbose-logging", verboseRow.get_active());
     });
     defaultsGroup.add(verboseRow);
+
+    const resetRow = new Adw.ActionRow({
+      title: "Reset all settings",
+      subtitle: "Reset all extension settings to schema defaults",
+    });
+    const resetButton = new Gtk.Button({ label: "Reset" });
+    resetButton.connect("clicked", () => {
+      // Reset all keys to schema defaults.
+      const keys = settings.settings_schema.list_keys();
+      for (const key of keys) {
+        settings.reset(key);
+      }
+    });
+    resetRow.add_suffix(resetButton);
+    defaultsGroup.add(resetRow);
 
     shortcutsPage.add(defaultsGroup);
 
