@@ -79,18 +79,21 @@ export class KeyBindManager {
         continue;
       }
 
-      const validAccelerators = [];
+      let hasConflict = false;
       for (const accel of accelerators) {
         const canBind = this._removeConflictingBindings(accel);
         if (!canBind) {
-          continue;
+          hasConflict = true;
         }
-        validAccelerators.push(accel);
       }
 
-      if (validAccelerators.length === 0) {
+      if (hasConflict) {
+        // We skip the command entirely if there's a conflict, since 
+        // we pass this._settings to addKeybinding, or we'll need an
+        // mem overlay of that to pass only the non conflicts bindings.
+        // We choose simplicity instead for now. 
         this._logger.verboseLog(
-          `Skipped binding ${command.id} - all accelerators conflict with existing bindings`,
+          `Skipped binding ${command.id} - conflicts with existing bindings`,
         );
         continue;
       }
@@ -109,7 +112,7 @@ export class KeyBindManager {
         handler,
       );
       this._logger.verboseLog(
-        `Bound keybind ${command.id} to ${validAccelerators.join(", ")}`,
+        `Bound keybind ${command.id} to ${accelerators.join(", ")}`,
       );
     }
   }

@@ -44,7 +44,7 @@
     <key name="override-conflicting-bindings" type="b">
       <default>false</default>
       <summary>Override conflicting keybindings</summary>
-      <description>When enabled, automatically removes conflicting keybindings from other schemas and restores them when the extension is disabled. When disabled, conflicting keybindings are skipped with a warning.</description>
+      <description>When enabled, automatically removes conflicting keybindings from other schemas and restores them when the extension is disabled. When disabled, commands with conflicting keybindings are skipped with a warning.</description>
     </key>
     <key name="verbose-logging" type="b">
       <default>false</default>
