@@ -103,7 +103,7 @@ export function connectObjectIfSignal(obj, name, handler, owner) {
 
 export function getMonitorManager() {
   const display = getDisplay();
-  return global.backend.get_monitor_manager?.() ??
+  return global.backend?.get_monitor_manager?.() ??
     display.get_monitor_manager();
 }
 
@@ -120,12 +120,12 @@ export function setResizeCursor(active) {
 }
 
 function getDefaultSeat() {
-  if (global.backend && typeof global.backend.get_default_seat === "function") {
+  if (typeof global.backend?.get_default_seat === "function") {
     return global.backend.get_default_seat();
   }
   if (typeof Clutter.get_default_backend === "function") {
     const backend = Clutter.get_default_backend();
-    if (backend && typeof backend.get_default_seat === "function") {
+    if (typeof backend?.get_default_seat === "function") {
       return backend.get_default_seat();
     }
   }
@@ -133,33 +133,32 @@ function getDefaultSeat() {
 }
 
 function getModifiers(seat, pointer) {
-  return seat && typeof seat.get_key_modifiers === "function"
+  return typeof seat?.get_key_modifiers === "function"
     ? seat.get_key_modifiers()
-    : pointer && typeof pointer.get_modifier_state === "function"
+    : typeof pointer?.get_modifier_state === "function"
     ? pointer.get_modifier_state()
     : 0;
 }
 
 export function getPointerData() {
   const seat = getDefaultSeat();
-  if (seat && typeof seat.get_pointer_coords === "function") {
+  if (typeof seat?.get_pointer_coords === "function") {
     const [x, y] = seat.get_pointer_coords();
     const modifiers = getModifiers(seat, null);
     return { x, y, modifiers };
   }
 
-  const pointer = seat && typeof seat.get_pointer === "function"
+  const pointer = typeof seat?.get_pointer === "function"
     ? seat.get_pointer()
     : null;
-  if (pointer && typeof pointer.get_coords === "function") {
+  if (typeof pointer?.get_coords === "function") {
     const [x, y] = pointer.get_coords();
     const modifiers = getModifiers(seat, pointer);
     return { x, y, modifiers };
   }
 
   if (
-    Clutter.DeviceManager &&
-    typeof Clutter.DeviceManager.get_default === "function"
+    typeof Clutter.DeviceManager?.get_default === "function"
   ) {
     const deviceManager = Clutter.DeviceManager.get_default();
     const pointerDevice = deviceManager.get_core_device(
