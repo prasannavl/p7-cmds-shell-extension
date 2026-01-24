@@ -2,12 +2,14 @@
 
 import Adw from "gi://Adw";
 import Gdk from "gi://Gdk";
+import Gio from "gi://Gio";
 import GLib from "gi://GLib";
 import Gtk from "gi://Gtk";
 import { ExtensionPreferences } from "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js";
 import {
   ACTION_MODE_NAMES,
   COMMAND_DEFINITIONS,
+  COMMON_KEYBINDING_SCHEMAS,
   KEYBINDING_FLAG_NAMES,
   parseWinOptsizeConfig,
 } from "./common.js";
@@ -83,6 +85,40 @@ function captureShortcut(parent, onDone) {
   dialog.present();
 }
 
+function createConflictChecker() {
+  const conflictSettings = COMMON_KEYBINDING_SCHEMAS.map(
+    (schema) => new Gio.Settings({ schema }),
+  );
+  const conflictKeyNames = new Map(
+    conflictSettings.map((settings) => {
+      const keys = settings.settings_schema.list_keys().filter((key) => {
+        const keyInfo = settings.settings_schema.get_key(key);
+        const valueType = keyInfo?.get_value_type?.();
+        return valueType?.equal(new GLib.VariantType("as"));
+      });
+      return [settings.schema_id, keys];
+    }),
+  );
+  const findConflicts = (accel) => {
+    const matches = [];
+    if (!accel) {
+      return matches;
+    }
+    for (const settings of conflictSettings) {
+      const schemaId = settings.schema_id;
+      const keys = conflictKeyNames.get(schemaId) ?? [];
+      for (const key of keys) {
+        const current = settings.get_strv(key);
+        if (current?.includes(accel)) {
+          matches.push({ schemaId, key });
+        }
+      }
+    }
+    return matches;
+  };
+  return { findConflicts };
+}
+
 function buildEnumRow(settings, title, subtitle, values, key) {
   const model = new Gtk.StringList();
   for (const value of values) {
@@ -113,6 +149,7 @@ function buildKeybindingGroup(
   command,
   registerSettingsChange,
   parent,
+  conflictChecker,
 ) {
   const group = new Adw.PreferencesGroup({
     title: command.title,
@@ -131,6 +168,11 @@ function buildKeybindingGroup(
     group.add(row);
     rows.push(row);
   };
+
+  const conflictRow = new Adw.ActionRow({
+    title: "Conflicting shortcuts",
+    subtitle: "",
+  });
 
   const refresh = () => {
     clearRows();
@@ -194,6 +236,27 @@ function buildKeybindingGroup(
     });
     addRow.add_suffix(addButton);
     addRowWidget(addRow);
+
+    if (conflictChecker) {
+      const details = [];
+      const seen = new Set();
+      for (const binding of bindings) {
+        const conflicts = conflictChecker.findConflicts(binding);
+        for (const conflict of conflicts) {
+          const label = `${binding} -> ${conflict.schemaId}::${conflict.key}`;
+          if (!seen.has(label)) {
+            seen.add(label);
+            details.push(label);
+          }
+        }
+      }
+      if (details.length > 0) {
+        conflictRow.set_subtitle(
+          `Already used by system shortcuts: ${details.join(", ")}`,
+        );
+        addRowWidget(conflictRow);
+      }
+    }
   };
 
   refresh();
@@ -887,6 +950,7 @@ function buildWinMouseResizeConfigGroup(settings, registerSettingsChange) {
 export default class P7ShortcutsPreferences extends ExtensionPreferences {
   fillPreferencesWindow(window) {
     const settings = this.getSettings();
+    const conflictChecker = createConflictChecker();
     let signals = [];
     const registerSettingsChange = (key, handler) => {
       const id = settings.connect(`changed::${key}`, handler);
@@ -974,7 +1038,13 @@ export default class P7ShortcutsPreferences extends ExtensionPreferences {
 
     for (const command of COMMAND_DEFINITIONS) {
       shortcutsPage.add(
-        buildKeybindingGroup(settings, command, registerSettingsChange, window),
+        buildKeybindingGroup(
+          settings,
+          command,
+          registerSettingsChange,
+          window,
+          conflictChecker,
+        ),
       );
 
       if (command.id === "cmd-win-optsize") {

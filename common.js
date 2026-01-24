@@ -23,6 +23,14 @@ export const ACTION_MODE_NAMES = [
   "PANEL",
 ];
 
+export const COMMON_KEYBINDING_SCHEMAS = [
+  "org.gnome.desktop.wm.keybindings",
+  "org.gnome.shell.keybindings",
+  "org.gnome.mutter.keybindings",
+  "org.gnome.mutter.wayland.keybindings",
+  "org.gnome.settings-daemon.plugins.media-keys",
+];
+
 export const DEFAULT_WIN_OPTSIZE_CONFIG = {
   scales: [
     [0.8, null],

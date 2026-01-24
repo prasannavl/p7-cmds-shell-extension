@@ -185,7 +185,7 @@ function end(existingState) {
   getDisplay()?.disconnectObject?.(state);
   getMonitorManager()?.disconnectObject?.(state);
   global.stage?.disconnectObject?.(state);
-  state.tracker?.disconnectObject(state);
+  state.tracker?.disconnectObject?.(state);
   if (
     state.trackedPosition &&
     typeof state.tracker?.untrack_position === "function"

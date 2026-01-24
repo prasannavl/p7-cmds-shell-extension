@@ -5,16 +5,9 @@ import GLib from "gi://GLib";
 import Meta from "gi://Meta";
 import Shell from "gi://Shell";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
+import { COMMON_KEYBINDING_SCHEMAS } from "./common.js";
 import { COMMANDS } from "./cmds.js";
 import { ConfigManager } from "./config.js";
-
-const COMMON_KEYBINDING_SCHEMAS = [
-  "org.gnome.desktop.wm.keybindings",
-  "org.gnome.shell.keybindings",
-  "org.gnome.mutter.keybindings",
-  "org.gnome.mutter.wayland.keybindings",
-  "org.gnome.settings-daemon.plugins.media-keys",
-];
 
 export class KeyBindManager {
   constructor(settings, logger) {
