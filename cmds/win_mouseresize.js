@@ -87,28 +87,9 @@ export function win_mouseresize(config, logger) {
     end(state);
     return;
   }
-  state.tracker = tracker;
 
-  const positionConnected = connectObjectIfSignal(
-    tracker,
-    "position-invalidated",
-    handlePointerMove,
-    state,
-  ) || connectObjectIfSignal(
-    tracker,
-    "position-changed",
-    handlePointerMove,
-    state,
-  );
-  if (!positionConnected) {
-    logger.verboseLog("win_mouseresize: no cursor position signal");
-    end(state);
-    return;
-  }
-  if (typeof tracker.track_position === "function") {
-    tracker.track_position();
-    state.trackedPosition = true;
-  }
+  state.cursorTracker = tracker;
+  tracker.connect(handlePointerMove, state);
 
   connectExitSignals(state, exitResize);
 }
@@ -128,13 +109,7 @@ function end(existingState) {
   getDisplay()?.disconnectObject?.(state);
   getMonitorManager()?.disconnectObject?.(state);
   global.stage?.disconnectObject?.(state);
-  state.tracker?.disconnectObject?.(state);
-  if (
-    state.trackedPosition &&
-    typeof state.tracker?.untrack_position === "function"
-  ) {
-    state.tracker.untrack_position();
-  }
+  state.cursorTracker?.disconnect(state);
   state.win?.disconnectObject(state);
   if (state.resizeSourceId) {
     GLib.source_remove(state.resizeSourceId);
@@ -368,7 +343,7 @@ function createState() {
 function _newState() {
   return {
     active: false,
-    tracker: null,
+    cursorTracker: null,
     win: null,
     winId: null,
     indicator: null,
@@ -378,7 +353,6 @@ function _newState() {
     startRect: null,
     startPoint: null,
     minSize: null,
-    trackedPosition: false,
     pendingPoint: null,
     pendingRect: null,
     resizeSourceId: 0,
@@ -489,7 +463,6 @@ function connectExitSignals(state, exitResize) {
       }
     },
   );
-
 }
 
 function connectOverviewSignals(state, onEvent) {

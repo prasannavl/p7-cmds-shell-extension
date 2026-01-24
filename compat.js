@@ -47,8 +47,29 @@ export function normalizeWindow(win) {
 
 export function getCursorTracker() {
   const display = getDisplay();
-  return global.backend.get_cursor_tracker?.() ??
+  const tracker = global.backend.get_cursor_tracker?.() ??
     Meta.CursorTracker.get_for_display(display);
+  if (!tracker) {
+    return null;
+  }
+  const cursorChangeSignal = hasSignal(tracker, "position-invalidated")
+    ? "position-invalidated"
+    : hasSignal(tracker, "position-changed")
+    ? "position-changed"
+    : null;
+  if (!cursorChangeSignal) {
+    return null;
+  }
+  return {
+    connect(handler, owner) {
+      tracker.connectObject(cursorChangeSignal, handler, owner);
+      tracker.track_position?.();
+    },
+    disconnect(owner) {
+      tracker.disconnectObject?.(owner);
+      tracker.untrack_position?.();
+    },
+  };
 }
 
 export function hasSignal(obj, name) {
