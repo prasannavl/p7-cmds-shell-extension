@@ -81,10 +81,10 @@ export class KeyBindManager {
       }
 
       if (hasConflict) {
-        // We skip the command entirely if there's a conflict, since 
+        // We skip the command entirely if there's a conflict, since
         // we pass this._settings to addKeybinding, or we'll need an
         // mem overlay of that to pass only the non conflicts bindings.
-        // We choose simplicity instead for now. 
+        // We choose simplicity instead for now.
         this._logger.verboseLog(
           `Skipped binding ${command.id} - conflicts with existing bindings`,
         );

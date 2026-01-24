@@ -821,7 +821,6 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
     });
     addBreakpointRow.add_suffix(addBreakpointButton);
     addRow(addBreakpointRow);
-
   };
 
   render();

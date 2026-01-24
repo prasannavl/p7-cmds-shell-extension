@@ -10,7 +10,6 @@ export const MaximizeFlags = Meta.MaximizeFlags ?? {
   BOTH: 3,
 };
 
-
 export function getDisplay() {
   if (global.display) {
     return global.display;

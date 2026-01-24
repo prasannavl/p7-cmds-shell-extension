@@ -61,7 +61,8 @@ export function normalizeWinOptsizeConfig(rawConfig, options = {}) {
   const defaults = cloneWinOptsizeConfig();
   const done = (value) => (strict ? { ok: true, value } : value);
   const fail = (error) => (strict ? { ok: false, error } : defaults);
-  const isNumber = (value) => typeof value === "number" && Number.isFinite(value);
+  const isNumber = (value) =>
+    typeof value === "number" && Number.isFinite(value);
   const getScaleError = (scales, label) => {
     if (!Array.isArray(scales)) {
       return `${label} must be an array.`;
@@ -101,7 +102,10 @@ export function normalizeWinOptsizeConfig(rawConfig, options = {}) {
     }
     for (let i = 0; i < rawConfig.breakpoints.length; i += 1) {
       const breakpoint = rawConfig.breakpoints[i];
-      if (!breakpoint || typeof breakpoint !== "object" || Array.isArray(breakpoint)) {
+      if (
+        !breakpoint || typeof breakpoint !== "object" ||
+        Array.isArray(breakpoint)
+      ) {
         return fail(`Invalid breakpoint at index ${i}.`);
       }
       if (!isNumber(breakpoint.maxWidth)) {
