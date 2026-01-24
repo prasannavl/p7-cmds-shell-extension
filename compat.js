@@ -47,8 +47,13 @@ export function normalizeWindow(win) {
 
 export function getCursorTracker() {
   const display = getDisplay();
-  const tracker = global.backend.get_cursor_tracker?.() ??
-    Meta.CursorTracker.get_for_display(display);
+  const tracker = typeof global.backend?.get_cursor_tracker === "function"
+    ? global.backend.get_cursor_tracker()
+    : typeof Meta.CursorTracker?.get_for_display === "function"
+    ? Meta.CursorTracker.get_for_display(display)
+    : typeof display?.get_cursor_tracker === "function"
+    ? display.get_cursor_tracker()
+    : null;
   if (!tracker) {
     return null;
   }
@@ -108,14 +113,20 @@ export function setResizeCursor(active) {
 }
 
 export function getPointerData() {
-  const seat = global.backend.get_default_seat();
-  if (seat.get_pointer_coords) {
+  const backend =
+    typeof global.backend?.get_default_seat === "function"
+      ? global.backend
+      : typeof Clutter.get_default_backend === "function"
+      ? Clutter.get_default_backend()
+      : null;
+  const seat = backend?.get_default_seat?.();
+  if (seat?.get_pointer_coords) {
     const [x, y] = seat.get_pointer_coords();
     const modifiers = seat.get_key_modifiers();
     return { x, y, modifiers };
   }
 
-  const pointer = seat.get_pointer();
+  const pointer = seat?.get_pointer?.();
   if (pointer) {
     const [x, y] = pointer.get_coords();
     const modifiers = seat.get_key_modifiers?.() ??
@@ -123,11 +134,19 @@ export function getPointerData() {
     return { x, y, modifiers };
   }
 
-  const deviceManager = Clutter.DeviceManager.get_default();
-  const pointerDevice = deviceManager.get_core_device(
-    Clutter.InputDeviceType.POINTER_DEVICE,
-  );
-  const [x, y] = pointerDevice.get_coords();
-  const modifiers = pointerDevice.get_modifier_state();
+  if (
+    Clutter.DeviceManager &&
+    typeof Clutter.DeviceManager.get_default === "function"
+  ) {
+    const deviceManager = Clutter.DeviceManager.get_default();
+    const pointerDevice = deviceManager.get_core_device(
+      Clutter.InputDeviceType.POINTER_DEVICE,
+    );
+    const [x, y] = pointerDevice.get_coords();
+    const modifiers = pointerDevice.get_modifier_state();
+    return { x, y, modifiers };
+  }
+
+  const [x, y, modifiers] = global.get_pointer();
   return { x, y, modifiers };
 }
