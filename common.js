@@ -48,21 +48,86 @@ export function cloneWinOptsizeConfig() {
   return JSON.parse(JSON.stringify(DEFAULT_WIN_OPTSIZE_CONFIG));
 }
 
-export function normalizeWinOptsizeConfig(rawConfig) {
+export function normalizeWinOptsizeConfig(rawConfig, options = {}) {
+  const strict = options?.strict === true;
   const defaults = cloneWinOptsizeConfig();
-  const config =
-    rawConfig && typeof rawConfig === "object" && !Array.isArray(rawConfig)
-      ? rawConfig
-      : {};
-  return {
-    scales: Array.isArray(config.scales) ? config.scales : defaults.scales,
-    breakpoints: Array.isArray(config.breakpoints)
-      ? config.breakpoints
-      : defaults.breakpoints,
-    aspectBasedInversion: typeof config.aspectBasedInversion === "boolean"
-      ? config.aspectBasedInversion
-      : defaults.aspectBasedInversion,
+  const done = (value) => (strict ? { ok: true, value } : value);
+  const fail = (error) => (strict ? { ok: false, error } : defaults);
+  const isNumber = (value) => typeof value === "number" && Number.isFinite(value);
+  const getScaleError = (scales, label) => {
+    if (!Array.isArray(scales)) {
+      return `${label} must be an array.`;
+    }
+    for (let i = 0; i < scales.length; i += 1) {
+      const scale = scales[i];
+      if (!Array.isArray(scale) || scale.length === 0 || scale.length > 2) {
+        return `${label} has invalid scale at index ${i}.`;
+      }
+      if (!isNumber(scale[0])) {
+        return `${label} has invalid scale at index ${i}.`;
+      }
+      if (scale.length === 2 && scale[1] !== null && !isNumber(scale[1])) {
+        return `${label} has invalid scale at index ${i}.`;
+      }
+    }
+    return null;
   };
+
+  if (!rawConfig || typeof rawConfig !== "object" || Array.isArray(rawConfig)) {
+    return fail("Config must be an object.");
+  }
+
+  let scales = defaults.scales;
+  if ("scales" in rawConfig) {
+    const error = getScaleError(rawConfig.scales, "Scales");
+    if (error) {
+      return fail(error);
+    }
+    scales = rawConfig.scales;
+  }
+
+  let breakpoints = defaults.breakpoints;
+  if ("breakpoints" in rawConfig) {
+    if (!Array.isArray(rawConfig.breakpoints)) {
+      return fail("Breakpoints must be an array.");
+    }
+    for (let i = 0; i < rawConfig.breakpoints.length; i += 1) {
+      const breakpoint = rawConfig.breakpoints[i];
+      if (!breakpoint || typeof breakpoint !== "object" || Array.isArray(breakpoint)) {
+        return fail(`Invalid breakpoint at index ${i}.`);
+      }
+      if (!isNumber(breakpoint.maxWidth)) {
+        return fail(`Breakpoint ${i} must define maxWidth.`);
+      }
+      if (
+        "maxHeight" in breakpoint &&
+        breakpoint.maxHeight !== null &&
+        !isNumber(breakpoint.maxHeight)
+      ) {
+        return fail(`Breakpoint ${i} has invalid maxHeight.`);
+      }
+      if ("scales" in breakpoint) {
+        const error = getScaleError(
+          breakpoint.scales,
+          `Breakpoint ${i} scales`,
+        );
+        if (error) {
+          return fail(error);
+        }
+      }
+    }
+    breakpoints = rawConfig.breakpoints;
+  }
+
+  let aspectBasedInversion = defaults.aspectBasedInversion;
+  if ("aspectBasedInversion" in rawConfig) {
+    if (typeof rawConfig.aspectBasedInversion !== "boolean") {
+      return fail("aspectBasedInversion must be boolean.");
+    }
+    aspectBasedInversion = rawConfig.aspectBasedInversion;
+  }
+
+  return done({ scales, breakpoints, aspectBasedInversion });
 }
 
 export function parseWinOptsizeConfig(rawValue, options = {}) {
@@ -77,13 +142,7 @@ export function parseWinOptsizeConfig(rawValue, options = {}) {
   }
   try {
     const parsed = JSON.parse(trimmed);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-      return strict
-        ? { ok: false, error: "JSON must be an object." }
-        : defaults;
-    }
-    const normalized = normalizeWinOptsizeConfig(parsed);
-    return strict ? { ok: true, value: normalized } : normalized;
+    return normalizeWinOptsizeConfig(parsed, { strict });
   } catch (_error) {
     if (strict) {
       return { ok: false, error: _error?.message ?? "Invalid JSON." };
