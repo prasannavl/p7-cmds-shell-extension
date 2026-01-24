@@ -70,12 +70,6 @@ export function win_mouseresize(config, logger) {
   setResizeCursor(true);
   updateResizeIndicator(state, state.startRect);
 
-  connectObjectIfSignal(
-    state.win,
-    "unmanaged",
-    () => exitResize("window unmanaged"),
-    state,
-  );
   const handleWindowRectChange = () => {
     if (!state.active || !state.win) {
       return;
@@ -117,57 +111,7 @@ export function win_mouseresize(config, logger) {
   }
   connectObjectIfSignal(tracker, signalName, handlePointerMove, state);
 
-  const handleGlobalEvent = (_actor, event) => {
-    if (!state.active) {
-      return Clutter.EVENT_PROPAGATE;
-    }
-    const type = event.type();
-    if (
-      type === Clutter.EventType.MOTION ||
-      type === Clutter.EventType.BUTTON_RELEASE ||
-      type === Clutter.EventType.KEY_RELEASE ||
-      type === Clutter.EventType.TOUCHPAD_HOLD
-    ) {
-      return Clutter.EVENT_PROPAGATE;
-    }
-    exitResize(`event ${type} (${getEventTypeName(type)})`);
-    return Clutter.EVENT_PROPAGATE;
-  };
-
-  connectObjectIfSignal(
-    global.stage,
-    "captured-event",
-    handleGlobalEvent,
-    state,
-  );
-
-  connectObjectIfSignal(
-    global.workspace_manager,
-    "active-workspace-changed",
-    () => exitResize("workspace changed"),
-    state,
-  );
-
-  const monitorManager = getMonitorManager();
-  connectObjectIfSignal(
-    monitorManager,
-    "monitors-changed",
-    () => exitResize("monitors changed"),
-    state,
-  );
-
-  connectOverviewSignals(state, () => exitResize("overview"));
-  connectLayoutStateSignals(state, () => exitResize("layout state"));
-  connectDisplaySignals(
-    state,
-    () => exitResize("display event"),
-    () => {
-      const focused = getFocusedWindow();
-      if (!focused || focused.get_id() !== state.winId) {
-        exitResize("focus changed");
-      }
-    },
-  );
+  connectExitSignals(state, exitResize);
 }
 
 export function win_mouseresize_destroy() {
@@ -493,6 +437,68 @@ function getEventTypeName(type) {
     }
   }
   return `UNKNOWN_${type}`;
+}
+
+function connectExitSignals(state, exitResize) {
+  connectObjectIfSignal(
+    state.win,
+    "unmanaged",
+    () => exitResize("window unmanaged"),
+    state,
+  );
+
+  const handleGlobalEvent = (_actor, event) => {
+    if (!state.active) {
+      return Clutter.EVENT_PROPAGATE;
+    }
+    const type = event.type();
+    if (
+      type === Clutter.EventType.MOTION ||
+      type === Clutter.EventType.BUTTON_RELEASE ||
+      type === Clutter.EventType.KEY_RELEASE ||
+      type === Clutter.EventType.TOUCHPAD_HOLD
+    ) {
+      return Clutter.EVENT_PROPAGATE;
+    }
+    exitResize(`event ${type} (${getEventTypeName(type)})`);
+    return Clutter.EVENT_PROPAGATE;
+  };
+
+  connectObjectIfSignal(
+    global.stage,
+    "captured-event",
+    handleGlobalEvent,
+    state,
+  );
+
+  connectObjectIfSignal(
+    global.workspace_manager,
+    "active-workspace-changed",
+    () => exitResize("workspace changed"),
+    state,
+  );
+
+  const monitorManager = getMonitorManager();
+  connectObjectIfSignal(
+    monitorManager,
+    "monitors-changed",
+    () => exitResize("monitors changed"),
+    state,
+  );
+
+  connectOverviewSignals(state, () => exitResize("overview"));
+  connectLayoutStateSignals(state, () => exitResize("layout state"));
+  connectDisplaySignals(
+    state,
+    () => exitResize("display event"),
+    () => {
+      const focused = getFocusedWindow();
+      if (!focused || focused.get_id() !== state.winId) {
+        exitResize("focus changed");
+      }
+    },
+  );
+
 }
 
 function connectOverviewSignals(state, onEvent) {
