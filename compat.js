@@ -112,25 +112,41 @@ export function setResizeCursor(active) {
   display.set_cursor(cursors[cursorName]);
 }
 
+function getDefaultSeat() {
+  if (global.backend && typeof global.backend.get_default_seat === "function") {
+    return global.backend.get_default_seat();
+  }
+  if (typeof Clutter.get_default_backend === "function") {
+    const backend = Clutter.get_default_backend();
+    if (backend && typeof backend.get_default_seat === "function") {
+      return backend.get_default_seat();
+    }
+  }
+  return null;
+}
+
+function getModifiers(seat, pointer) {
+  return seat && typeof seat.get_key_modifiers === "function"
+    ? seat.get_key_modifiers()
+    : pointer && typeof pointer.get_modifier_state === "function"
+    ? pointer.get_modifier_state()
+    : 0;
+}
+
 export function getPointerData() {
-  const backend =
-    typeof global.backend?.get_default_seat === "function"
-      ? global.backend
-      : typeof Clutter.get_default_backend === "function"
-      ? Clutter.get_default_backend()
-      : null;
-  const seat = backend?.get_default_seat?.();
-  if (seat?.get_pointer_coords) {
+  const seat = getDefaultSeat();
+  if (seat && typeof seat.get_pointer_coords === "function") {
     const [x, y] = seat.get_pointer_coords();
-    const modifiers = seat.get_key_modifiers();
+    const modifiers = getModifiers(seat, null);
     return { x, y, modifiers };
   }
 
-  const pointer = seat?.get_pointer?.();
-  if (pointer) {
+  const pointer = seat && typeof seat.get_pointer === "function"
+    ? seat.get_pointer()
+    : null;
+  if (pointer && typeof pointer.get_coords === "function") {
     const [x, y] = pointer.get_coords();
-    const modifiers = seat.get_key_modifiers?.() ??
-      pointer.get_modifier_state();
+    const modifiers = getModifiers(seat, pointer);
     return { x, y, modifiers };
   }
 
@@ -143,7 +159,7 @@ export function getPointerData() {
       Clutter.InputDeviceType.POINTER_DEVICE,
     );
     const [x, y] = pointerDevice.get_coords();
-    const modifiers = pointerDevice.get_modifier_state();
+    const modifiers = getModifiers(null, pointerDevice);
     return { x, y, modifiers };
   }
 
