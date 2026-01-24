@@ -2,10 +2,14 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [23] - 2026-01-25
+
+-  Harden compat and cleanup
+
 ## [22] - 2026-01-24
 
 - Add config for mouse resize options
-- Cleanup compay layers
+- Cleanup compat layers
 
 ### [20] - 2026-01-14
 
