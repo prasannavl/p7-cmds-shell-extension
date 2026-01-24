@@ -498,10 +498,7 @@ function connectLayoutStateSignals(state, onEvent) {
     for (const name of signalNames) {
       target.connectObject(
         name,
-        (actor) => {
-          if (name === "notify::visible" && !actor?.visible) {
-            return;
-          }
+        () => {
           onEvent();
         },
         state,
