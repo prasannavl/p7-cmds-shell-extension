@@ -10,7 +10,6 @@ export const MaximizeFlags = Meta.MaximizeFlags ?? {
   BOTH: 3,
 };
 
-const RESIZE_CURSOR_CANDIDATES = ["ALL_RESIZE", "MOVE"];
 
 export function getDisplay() {
   if (global.display) {
@@ -158,19 +157,14 @@ export function setResizeCursor(active) {
     return;
   }
   const cursors = Meta.Cursor || {};
-  let cursor = null;
-  if (active) {
-    for (const name of RESIZE_CURSOR_CANDIDATES) {
-      if (name in cursors) {
-        cursor = cursors[name];
-        break;
-      }
-    }
-  } else if ("DEFAULT" in cursors) {
-    cursor = cursors.DEFAULT;
-  }
-  if (cursor !== null) {
-    display.set_cursor(cursor);
+  const defaultCursorName = "DEFAULT";
+  const resizeCursorNames = ["ALL_RESIZE", "MOVE"];
+  const cursorName = active
+    ? resizeCursorNames.find((name) => name in cursors) ??
+      defaultCursorName
+    : defaultCursorName;
+  if (cursorName in cursors) {
+    display.set_cursor(cursors[cursorName]);
   }
 }
 
