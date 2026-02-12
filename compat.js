@@ -16,11 +16,21 @@ export function getFocusedWindow() {
 }
 
 export function getMaximizeState(metaWindow) {
-  const flags = metaWindow.get_maximize_flags();
-  const horizontal = (flags & MaximizeFlags.HORIZONTAL) !== 0;
-  const vertical = (flags & MaximizeFlags.VERTICAL) !== 0;
+  const flags = metaWindow.get_maximize_flags?.() ?? 0;
+  const hFlag = Meta.MaximizeFlags?.HORIZONTAL ?? 1;
+  const vFlag = Meta.MaximizeFlags?.VERTICAL ?? 2;
+  const bothFlag = Meta.MaximizeFlags?.BOTH ?? hFlag | vFlag;
+
+  let horizontal = (flags & hFlag) !== 0;
+  let vertical = (flags & vFlag) !== 0;
+
+  if (!flags) {
+    horizontal = !!metaWindow.maximized_horizontally;
+    vertical = !!metaWindow.maximized_vertically;
+  }
+
   const any = horizontal || vertical;
-  const full = (flags & MaximizeFlags.BOTH) === MaximizeFlags.BOTH;
+  const full = flags ? (flags & bothFlag) === bothFlag : horizontal && vertical;
 
   return { any, full, horizontal, vertical };
 }
