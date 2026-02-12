@@ -117,6 +117,9 @@ function end(existingState) {
   if (state.indicatorSourceId) {
     GLib.source_remove(state.indicatorSourceId);
   }
+  if (state.eventFilterId) {
+    Clutter.Event.remove_filter(state.eventFilterId);
+  }
   state.indicator?.destroy();
   resetState(state);
 }
@@ -320,11 +323,12 @@ function updateResizeIndicator(state, rect) {
   ensureResizeIndicator(state);
   const indicator = state.indicator;
   const borderSize = getIndicatorBorderSize(state);
-  indicator.set_position(rect.x - borderSize, rect.y - borderSize);
-  indicator.set_size(
-    rect.width + borderSize * 2,
-    rect.height + borderSize * 2,
-  );
+  const width = rect.width + borderSize * 2;
+  const height = rect.height + borderSize * 2;
+  const x = rect.x - borderSize;
+  const y = rect.y - borderSize;
+  indicator.set_position(x, y);
+  indicator.set_size(width, height);
   indicator.show();
 }
 
@@ -357,6 +361,7 @@ function _newState() {
     pendingRect: null,
     resizeSourceId: 0,
     indicatorSourceId: 0,
+    eventFilterId: 0,
   };
 }
 
@@ -410,36 +415,23 @@ function connectExitSignals(state, exitResize) {
     state,
   );
 
-  const handleGlobalEvent = (_actor, event) => {
-    if (!state.active) {
-      return Clutter.EVENT_PROPAGATE;
-    }
-    const type = event.type();
-    if (
-      type === Clutter.EventType.KEY_RELEASE ||
-      type === Clutter.EventType.KEY_STATE
-    ) {
-      if (!hasSuperKeyPressed()) {
-        exitResize(`event ${type}`);
+    state.eventFilterId = Clutter.Event.add_filter(
+    global.stage,
+    (event) => {
+      if (!state.active) {
+        return Clutter.EVENT_PROPAGATE;
+      }
+      const type = event.type();
+      if (
+        type === Clutter.EventType.KEY_RELEASE ||
+        type === Clutter.EventType.KEY_STATE
+      ) {
+        if (!hasSuperKeyPressed()) {
+          exitResize(`event ${type}`);
+        }
       }
       return Clutter.EVENT_PROPAGATE;
-    }
-    if (
-      type === Clutter.EventType.MOTION ||
-      type === Clutter.EventType.BUTTON_RELEASE ||
-      type === Clutter.EventType.TOUCHPAD_HOLD
-    ) {
-      return Clutter.EVENT_PROPAGATE;
-    }
-    exitResize(`event ${type}`);
-    return Clutter.EVENT_PROPAGATE;
-  };
-
-  connectObjectIfSignal(
-    global.stage,
-    "captured-event",
-    handleGlobalEvent,
-    state,
+    },
   );
 
   connectObjectIfSignal(
