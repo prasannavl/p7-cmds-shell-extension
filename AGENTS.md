@@ -30,3 +30,14 @@ Programming styles:
 - Simplicity is a MUST. Keep the code as simple as possible.
 - Avoid excessive defensiveness when not necessary.
 - Avoid duplication and promote reusability as much as possible.
+
+### Operations
+
+#### Update version
+
+- When asked to set a new version:
+  - Inside a `nix develop` env, run `make fmt`, `make clean` and `make pack`
+  - Then increment the version in `metadata.json`
+  - Add a new entry to change log with the current date and version info
+  - Once all of this is done, stage all the changes, and ask me if we can commit
+    with the message "Update version: <version-number>"
