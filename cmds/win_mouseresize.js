@@ -117,8 +117,8 @@ function end(existingState) {
   if (state.indicatorSourceId) {
     GLib.source_remove(state.indicatorSourceId);
   }
-  if (state.eventFilterId) {
-    Clutter.Event.remove_filter(state.eventFilterId);
+  if (state.superWatchSourceId) {
+    GLib.source_remove(state.superWatchSourceId);
   }
   state.indicator?.destroy();
   resetState(state);
@@ -361,7 +361,7 @@ function _newState() {
     pendingRect: null,
     resizeSourceId: 0,
     indicatorSourceId: 0,
-    eventFilterId: 0,
+    superWatchSourceId: 0,
   };
 }
 
@@ -414,13 +414,10 @@ function connectExitSignals(state, exitResize) {
     () => exitResize("window unmanaged"),
     state,
   );
-
-  state.eventFilterId = Clutter.Event.add_filter(
-    null,
-    (event) => {
-      if (!state.active) {
-        return Clutter.EVENT_PROPAGATE;
-      }
+  connectObjectIfSignal(
+    global.stage,
+    "captured-event",
+    (_actor, event) => {
       const type = event.type();
       if (
         type === Clutter.EventType.KEY_RELEASE ||
@@ -432,6 +429,7 @@ function connectExitSignals(state, exitResize) {
       }
       return Clutter.EVENT_PROPAGATE;
     },
+    state,
   );
 
   connectObjectIfSignal(
@@ -459,6 +457,23 @@ function connectExitSignals(state, exitResize) {
       if (!focused || focused.get_id() !== state.winId) {
         exitResize("focus changed");
       }
+    },
+  );
+
+  state.superWatchSourceId = GLib.timeout_add(
+    GLib.PRIORITY_DEFAULT_IDLE,
+    120,
+    () => {
+      if (!state.active) {
+        state.superWatchSourceId = 0;
+        return GLib.SOURCE_REMOVE;
+      }
+      if (!hasSuperKeyPressed()) {
+        state.superWatchSourceId = 0;
+        exitResize("super released");
+        return GLib.SOURCE_REMOVE;
+      }
+      return GLib.SOURCE_CONTINUE;
     },
   );
 }
@@ -514,7 +529,11 @@ function connectLayoutStateSignals(state, onEvent) {
   }
 }
 
-function connectDisplaySignals(state, onEvent, onFocusChange) {
+function connectDisplaySignals(
+  state,
+  onEvent,
+  onFocusChange,
+) {
   const display = getDisplay();
   if (!display) {
     return;

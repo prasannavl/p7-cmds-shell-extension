@@ -2,6 +2,11 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [29] - 2026-02-13
+
+- Yet another compatibility fix release
+- Uses a timer to check exit conditions to ensure that it works
+
 ## [28] - 2026-02-13
 
 - Another compatibility fix release
