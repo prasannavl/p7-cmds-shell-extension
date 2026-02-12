@@ -2,6 +2,10 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [24] - 2026-02-12
+
+- Fix maximize state update compat <= GNOME 48
+
 ## [23] - 2026-01-25
 
 - Harden compat and cleanup
