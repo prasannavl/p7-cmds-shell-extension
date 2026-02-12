@@ -416,9 +416,17 @@ function connectExitSignals(state, exitResize) {
     }
     const type = event.type();
     if (
+      type === Clutter.EventType.KEY_RELEASE ||
+      type === Clutter.EventType.KEY_STATE
+    ) {
+      if (!hasSuperKeyPressed()) {
+        exitResize(`event ${type}`);
+      }
+      return Clutter.EVENT_PROPAGATE;
+    }
+    if (
       type === Clutter.EventType.MOTION ||
       type === Clutter.EventType.BUTTON_RELEASE ||
-      type === Clutter.EventType.KEY_RELEASE ||
       type === Clutter.EventType.TOUCHPAD_HOLD
     ) {
       return Clutter.EVENT_PROPAGATE;
@@ -461,6 +469,14 @@ function connectExitSignals(state, exitResize) {
       }
     },
   );
+}
+
+function hasSuperKeyPressed() {
+  const SUPER_KEY_MASK = Clutter.ModifierType.SUPER_MASK |
+    Clutter.ModifierType.META_MASK |
+    Clutter.ModifierType.MOD4_MASK;
+  const { modifiers } = getPointerData();
+  return (modifiers & SUPER_KEY_MASK) !== 0;
 }
 
 function connectOverviewSignals(state, onEvent) {
