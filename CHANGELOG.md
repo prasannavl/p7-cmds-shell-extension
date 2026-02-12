@@ -2,6 +2,11 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [25] - 2026-02-13
+
+- Switch mouse resize exit to look for meta key hold
+- Also fixes <= GNOME 48 release semantics
+
 ## [24] - 2026-02-12
 
 - Fix maximize state update compat <= GNOME 48
