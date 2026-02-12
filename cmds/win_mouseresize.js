@@ -416,7 +416,7 @@ function connectExitSignals(state, exitResize) {
   );
 
   state.eventFilterId = Clutter.Event.add_filter(
-    global.stage,
+    null,
     (event) => {
       if (!state.active) {
         return Clutter.EVENT_PROPAGATE;
