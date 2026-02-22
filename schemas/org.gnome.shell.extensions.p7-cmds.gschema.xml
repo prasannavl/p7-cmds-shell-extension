@@ -2,12 +2,12 @@
 <schemalist>
   <schema id="org.gnome.shell.extensions.p7-cmds" path="/org/gnome/shell/extensions/p7-cmds/">
     <key name="cmd-win-optsize" type="as">
-      <default>["&lt;Super&gt;&lt;Shift&gt;x"]</default>
+      <default>["&lt;Super&gt;x"]</default>
       <summary>Optimal size focused window</summary>
       <description>Resize the focused window to a size based on the monitor work area and center it.</description>
     </key>
     <key name="cmd-win-mouseresize" type="as">
-      <default>["&lt;Super&gt;x"]</default>
+      <default>["&lt;Super&gt;&lt;Shift&gt;x"]</default>
       <summary>Resize focused window with mouse</summary>
       <description>Resize the focused window by holding Super and moving the mouse beyond the window edges.</description>
     </key>

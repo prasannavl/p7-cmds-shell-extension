@@ -13,13 +13,13 @@ the GNOME shell experience more intuitive for power users.
 <p align="center">
   <img src="docs/assets/screencast-optsize.gif" alt="Borders reacting to edge-aware logic" width="100%" style="max-width: 640px; height: auto;"/>
   <br/>
-   Window auto optimal size (based on output size): `Super` + `Shift` + `x`
+  Window auto optimal size (based on output size): `Super` + `x`
 </p>
 
 <p align="center">
   <img src="docs/assets/screencast-resize.gif" alt="Borders reacting to edge-aware logic" width="100%" style="max-width: 640px; height: auto;"/>
   <br/>
-   Window auto resize on mouse move: `Super` + `x`
+  Window auto resize on mouse move: `Super` + `Shift` + `x`
 </p>
 
 ## Commands
@@ -30,7 +30,7 @@ Resizes the focused window to an optimal size for the current monitor work area
 and centers it. It cycles through configured scales, and the final step restores
 the original window size.
 
-Default keybinding: `<Super><Shift>x`
+Default keybinding: `<Super>x`
 
 #### Notes
 
@@ -43,7 +43,7 @@ Default keybinding: `<Super><Shift>x`
 Resizes the focused window using the mouse by locking to the nearest edge once
 you move the cursor past it, then dragging to the target size.
 
-- Default keybinding: `<Super>x`
+- Default keybinding: `<Super><Shift>x`
 - Press and hold Super and move mouse to resize.
 
 #### Notes
