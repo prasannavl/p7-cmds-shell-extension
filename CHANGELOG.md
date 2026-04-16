@@ -2,6 +2,12 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [32] - 2026-02-22
+
+- Fix mouse resize out of bounds reversal
+- Add keyboard shortcut during mouse resize
+- More refined, predicatable, intuitive behavior for opt resize
+
 ## [31] - 2026-02-22
 
 - Revert shortcut defaults.
