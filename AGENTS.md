@@ -36,6 +36,7 @@ Programming styles:
 #### General
 
 - Use `nix develop` to get a shell with all the tools needed to work.
+- Absolutely no global state. Use the existing STATE_MAP where necessary.
 
 #### Update version
 

@@ -17,7 +17,7 @@
       <description>Resize the focused window by holding Super and moving the mouse beyond the window edges.</description>
     </key>
     <key name="win-optsize-config" type="s">
-      <default>"{\"scales\":[[0.95,0.9]],\"breakpoints\":[{\"maxWidth\":1920,\"scales\":[[0.95,0.9]]},{\"maxWidth\":2560,\"scales\":[[0.95,0.9]]},{\"maxWidth\":3840,\"scales\":[[0.55,0.9]]}]}"</default>
+      <default>"{\"aspectBasedInversion\":false,\"scales\":[[0.95,0.9]],\"breakpoints\":[{\"maxWidth\":1920,\"scales\":[[0.95,0.9]]},{\"maxWidth\":2560,\"scales\":[[0.95,0.9]]},{\"maxWidth\":3840,\"scales\":[[0.55,0.9]]}]}"</default>
       <summary>Win optsize config</summary>
       <description>JSON config for win_optsize breakpoints and scales.</description>
     </key>

@@ -2,7 +2,7 @@
 
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 import { KeyBindManager } from "./keybindmanager.js";
-import { destroyCommands, STATE_MAP } from "./cmds.js";
+import { COMMANDS, destroyCommands, STATE_MAP } from "./cmds.js";
 import { Logger } from "./logger.js";
 
 export default class P7ShortcutsExtension extends Extension {
@@ -20,7 +20,7 @@ export default class P7ShortcutsExtension extends Extension {
     this._logger = new Logger(settings, baseLogger);
     this._logger.log("Extension enabled");
 
-    this.keyBindManager = new KeyBindManager(settings, this._logger);
+    this.keyBindManager = new KeyBindManager(settings, this._logger, COMMANDS);
     this.keyBindManager.enable();
   }
 

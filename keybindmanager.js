@@ -1,34 +1,23 @@
 // keybindmanager.js
 
-import Gio from "gi://Gio";
-import GLib from "gi://GLib";
 import Meta from "gi://Meta";
 import Shell from "gi://Shell";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
-import { COMMON_KEYBINDING_SCHEMAS } from "./common.js";
-import { COMMANDS } from "./cmds.js";
 import { ConfigManager } from "./config.js";
+import { createConflictKeybindingIndex } from "./utils.js";
 
 export class KeyBindManager {
-  constructor(settings, logger) {
+  constructor(settings, logger, commands) {
     this._settings = settings;
     this._logger = logger;
+    this._commands = commands;
     this._configManager = new ConfigManager(settings, logger);
     this._configChangeCallback = (x) => this._onConfigChanged(x);
     this._replacedBindings = new Map();
-    this._conflictSettings = COMMON_KEYBINDING_SCHEMAS.map(
-      (schema) => new Gio.Settings({ schema }),
-    );
-    this._conflictKeyNames = new Map(
-      this._conflictSettings.map((settings) => {
-        const keys = settings.settings_schema.list_keys().filter((key) => {
-          const keyInfo = settings.settings_schema.get_key(key);
-          const valueType = keyInfo?.get_value_type?.();
-          return valueType?.equal(new GLib.VariantType("as"));
-        });
-        return [settings.schema_id, keys];
-      }),
-    );
+    const conflictIndex = createConflictKeybindingIndex();
+    this._conflictSettings = conflictIndex.settings;
+    this._conflictSettingsBySchema = conflictIndex.settingsBySchema;
+    this._conflictKeyNames = conflictIndex.keyNamesBySchema;
   }
 
   enable() {
@@ -66,7 +55,7 @@ export class KeyBindManager {
       ? config.actionMode
       : Shell.ActionMode.ALL;
 
-    for (const command of COMMANDS) {
+    for (const command of this._commands) {
       const accelerators = keybindings[command.id] ?? [];
       if (!Array.isArray(accelerators) || accelerators.length === 0) {
         continue;
@@ -111,7 +100,7 @@ export class KeyBindManager {
   }
 
   _removeKeybindings() {
-    for (const command of COMMANDS) {
+    for (const command of this._commands) {
       Main.wm.removeKeybinding(command.id);
     }
   }
@@ -165,9 +154,7 @@ export class KeyBindManager {
 
   _restoreConflicts() {
     for (const [schemaId, keys] of this._replacedBindings) {
-      const settings = this._conflictSettings.find(
-        (item) => item.schema_id === schemaId,
-      );
+      const settings = this._conflictSettingsBySchema.get(schemaId);
       if (!settings) {
         continue;
       }

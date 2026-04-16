@@ -15,8 +15,10 @@ import {
   setResizeCursor,
 } from "../compat.js";
 import { STATE_KEYS, STATE_MAP } from "../cmds.js";
+import { createConflictKeybindingIndex } from "../utils.js";
 
 const MIN_RESIZE_SIZE = 10;
+const KEYBOARD_RESIZE_STEP = 50;
 const DEFAULT_INDICATOR_BORDER = 3;
 const DEFAULT_INDICATOR_BORDER_COLOR = "rgba(230, 105, 105, 0.8)";
 const DEFAULT_INDICATOR_BACKGROUND_COLOR = "rgba(70, 70, 70, 0.2)";
@@ -32,20 +34,6 @@ export function win_mouseresize(config, logger) {
 
   normalizeWindow(win);
 
-  state.active = true;
-  state.win = win;
-  state.winId = win.get_id();
-  const indicatorConfig = resolveIndicatorConfig(config);
-  state.indicatorColors = indicatorConfig.colors;
-  state.indicatorBorderSize = indicatorConfig.borderSize;
-  state.edges = null;
-  state.startRect = win.get_frame_rect();
-  state.minSize = getWindowMinSize(win);
-  {
-    const { x, y } = getPointerData();
-    state.startPoint = { x, y };
-  }
-
   const exitResize = (reason) => {
     if (!state.active) {
       return;
@@ -54,15 +42,42 @@ export function win_mouseresize(config, logger) {
     logger.verboseLog(`win_mouseresize: exit resize mode (${reason})`);
   };
 
+  if (!beginModalGrab(state, exitResize)) {
+    logger.verboseLog("win_mouseresize: failed to grab modal input");
+    end(state);
+    return;
+  }
+  suppressSuperArrowBindings(state, logger);
+
+  state.active = true;
+  state.win = win;
+  state.winId = win.get_id();
+  const indicatorConfig = resolveIndicatorConfig(config);
+  state.indicatorColors = indicatorConfig.colors;
+  state.indicatorBorderSize = indicatorConfig.borderSize;
+  state.edges = null;
+  state.startRect = cloneRect(win.get_frame_rect());
+  state.currentRect = cloneRect(state.startRect);
+  state.minSize = getWindowMinSize(win);
+  state.startPoint = getPointerPoint();
+
   const handlePointerMove = () => {
-    const { x, y } = getPointerData();
-    const point = { x, y };
+    const point = getPointerPoint();
 
     if (!ensureLockedEdges(state, point, state.startRect)) {
       return true;
     }
 
-    queueResize(state, point, logger);
+    const targetRect = computeResizeRect(
+      state.startRect,
+      state.edges,
+      state.startPoint,
+      point,
+      state.minSize,
+    );
+    if (targetRect) {
+      queueResizeRect(state, targetRect, point, "mouse");
+    }
     return true;
   };
 
@@ -75,6 +90,7 @@ export function win_mouseresize(config, logger) {
     }
     const rect = state.win.get_frame_rect?.();
     if (rect) {
+      syncCurrentRect(state, rect);
       queueIndicatorSync(state, rect);
     }
   };
@@ -103,6 +119,8 @@ function end(existingState) {
   if (!state) {
     return;
   }
+  restoreSuppressedBindings(state);
+  releaseModalGrab(state);
   setResizeCursor(false);
   Main.overview?.disconnectObject?.(state);
   global.workspace_manager?.disconnectObject?.(state);
@@ -126,39 +144,51 @@ function end(existingState) {
 
 // Queue helpers
 
-function queueResize(state, point, logger) {
-  state.pendingPoint = point;
+function getPointerPoint() {
+  const { x, y } = getPointerData();
+  return { x, y };
+}
+
+function getPointDelta(fromPoint, toPoint) {
+  return {
+    x: toPoint.x - fromPoint.x,
+    y: toPoint.y - fromPoint.y,
+  };
+}
+
+function queueResizeRect(state, rect, point, mode) {
+  state.pendingResize = {
+    rect: cloneRect(rect),
+    point: point ? { x: point.x, y: point.y } : null,
+    mode,
+  };
   if (state.resizeSourceId) {
     return;
   }
   state.resizeSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
     state.resizeSourceId = 0;
-    if (!state.active || !state.win || !state.pendingPoint) {
+    const pendingResize = state.pendingResize;
+    state.pendingResize = null;
+    if (!state.active || !state.win || !pendingResize?.rect) {
       return GLib.SOURCE_REMOVE;
     }
-    const point = state.pendingPoint;
-    state.pendingPoint = null;
-    const targetRect = computeResizeRect(
-      state.startRect,
-      state.edges,
-      state.startPoint,
-      point,
-      state.minSize,
-    );
-    if (targetRect) {
-      applyResizeRect(state.win, targetRect, state.edges, logger);
+
+    applyResizeRect(state.win, pendingResize.rect);
+    syncCurrentRect(state, pendingResize.rect);
+    queueIndicatorSync(state, pendingResize.rect);
+
+    if (pendingResize.mode === "mouse") {
+      reanchorClampedAxes(state, pendingResize.rect, pendingResize.point);
+    } else if (pendingResize.mode === "keyboard") {
+      reanchorMouseResize(state, pendingResize.rect, getPointerPoint());
     }
+
     return GLib.SOURCE_REMOVE;
   });
 }
 
 function queueIndicatorSync(state, rect) {
-  // If we already have an indicator sync in queue
-  // we swap out the state, so reuse the existing
-  // sync, but make it use the latest data instead
-  // of having to reschedule a new sync and cancel
-  // the old one.
-  state.pendingRect = rect;
+  state.pendingRect = cloneRect(rect);
   if (state.indicatorSourceId) {
     return;
   }
@@ -167,14 +197,51 @@ function queueIndicatorSync(state, rect) {
     if (!state.active || !state.pendingRect) {
       return GLib.SOURCE_REMOVE;
     }
-    const rect = state.pendingRect;
+    const rect = cloneRect(state.win?.get_frame_rect?.()) ?? state.pendingRect;
     state.pendingRect = null;
     updateResizeIndicator(state, rect);
     return GLib.SOURCE_REMOVE;
   });
 }
 
+function syncCurrentRect(state, rect) {
+  state.currentRect = cloneRect(rect);
+}
+
+function reanchorMouseResize(state, rect, point) {
+  state.startRect = cloneRect(rect);
+  state.startPoint = { x: point.x, y: point.y };
+}
+
+function reanchorClampedAxes(state, rect, point) {
+  if (!rect || !point) {
+    return;
+  }
+  if (rect.width === state.minSize.width) {
+    state.startRect.x = rect.x;
+    state.startRect.width = rect.width;
+    state.startPoint.x = point.x;
+  }
+  if (rect.height === state.minSize.height) {
+    state.startRect.y = rect.y;
+    state.startRect.height = rect.height;
+    state.startPoint.y = point.y;
+  }
+}
+
 // Window helpers
+
+function cloneRect(rect) {
+  if (!rect) {
+    return null;
+  }
+  return {
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+  };
+}
 
 function getWindowMinSize(win) {
   let minWidth = MIN_RESIZE_SIZE;
@@ -196,11 +263,20 @@ function getWindowMinSize(win) {
 }
 
 function ensureLockedEdges(state, point, rect) {
+  const delta = getPointDelta(state.startPoint, point);
+  return lockEdges(state, delta, point, rect);
+}
+
+function ensureLockedEdgesForDelta(state, delta, point, rect) {
+  return lockEdges(state, delta, point, rect);
+}
+
+function lockEdges(state, delta, point, rect) {
   if (!state.edges) {
     state.edges = { left: false, right: false, top: false, bottom: false };
   }
-  const dx = point.x - state.startPoint.x;
-  const dy = point.y - state.startPoint.y;
+  const dx = delta.x;
+  const dy = delta.y;
   if (!state.edges.left && !state.edges.right && dx !== 0) {
     const leftEdge = rect.x;
     const rightEdge = rect.x + rect.width;
@@ -241,8 +317,20 @@ function computeResizeRect(rect, edges, startPoint, pointer, minSize) {
   if (!edges || (!edges.left && !edges.right && !edges.top && !edges.bottom)) {
     return null;
   }
-  const dx = pointer.x - startPoint.x;
-  const dy = pointer.y - startPoint.y;
+  return computeResizeRectFromDelta(
+    rect,
+    edges,
+    getPointDelta(startPoint, pointer),
+    minSize,
+  );
+}
+
+function computeResizeRectFromDelta(rect, edges, delta, minSize) {
+  if (!edges || (!edges.left && !edges.right && !edges.top && !edges.bottom)) {
+    return null;
+  }
+  const dx = delta.x;
+  const dy = delta.y;
   const minWidth = minSize?.width ?? MIN_RESIZE_SIZE;
   const minHeight = minSize?.height ?? MIN_RESIZE_SIZE;
 
@@ -282,19 +370,198 @@ function computeResizeRect(rect, edges, startPoint, pointer, minSize) {
   return { x, y, width, height };
 }
 
-function applyResizeRect(win, rect, edges, logger) {
+function applyResizeRect(win, rect) {
   if (!rect) {
-    logger.verboseLog("win_mouseresize: no edges enabled");
     return null;
   }
   const { x, y, width, height } = rect;
-  logger.verboseLog(
-    `win_mouseresize: ${edges.left ? "left" : edges.right ? "right" : "-"},${
-      edges.top ? "top" : edges.bottom ? "bottom" : "-"
-    } -> ${width}x${height} @ ${x},${y}`,
-  );
   win.move_resize_frame(true, x, y, width, height);
   return rect;
+}
+
+function getResizeStepDelta(symbol) {
+  switch (symbol) {
+    case Clutter.KEY_Left:
+    case Clutter.KEY_KP_Left:
+      return { x: -KEYBOARD_RESIZE_STEP, y: 0 };
+    case Clutter.KEY_Right:
+    case Clutter.KEY_KP_Right:
+      return { x: KEYBOARD_RESIZE_STEP, y: 0 };
+    case Clutter.KEY_Up:
+    case Clutter.KEY_KP_Up:
+      return { x: 0, y: -KEYBOARD_RESIZE_STEP };
+    case Clutter.KEY_Down:
+    case Clutter.KEY_KP_Down:
+      return { x: 0, y: KEYBOARD_RESIZE_STEP };
+    default:
+      return null;
+  }
+}
+
+function handleResizeKeyPress(state, symbol) {
+  const delta = getResizeStepDelta(symbol);
+  if (!delta) {
+    return Clutter.EVENT_PROPAGATE;
+  }
+
+  const point = getPointerPoint();
+  ensureLockedEdgesForDelta(state, delta, point, state.currentRect);
+  const targetRect = computeResizeRectFromDelta(
+    state.currentRect,
+    state.edges,
+    delta,
+    state.minSize,
+  );
+  if (targetRect) {
+    queueResizeRect(state, targetRect, point, "keyboard");
+  }
+  return Clutter.EVENT_STOP;
+}
+
+function handleResizeKeyRelease(event, exitResize) {
+  if (!hasSuperKeyPressed()) {
+    exitResize(`event ${event.type()}`);
+    return Clutter.EVENT_STOP;
+  }
+
+  const keySymbol = event.get_key_symbol?.();
+  if (
+    keySymbol === Clutter.KEY_Left ||
+    keySymbol === Clutter.KEY_KP_Left ||
+    keySymbol === Clutter.KEY_Right ||
+    keySymbol === Clutter.KEY_KP_Right ||
+    keySymbol === Clutter.KEY_Up ||
+    keySymbol === Clutter.KEY_KP_Up ||
+    keySymbol === Clutter.KEY_Down ||
+    keySymbol === Clutter.KEY_KP_Down ||
+    keySymbol === Clutter.KEY_Escape
+  ) {
+    return Clutter.EVENT_STOP;
+  }
+
+  return Clutter.EVENT_PROPAGATE;
+}
+
+function beginModalGrab(state, exitResize) {
+  if (state.modalGrab) {
+    return true;
+  }
+
+  const actor = new St.Widget({
+    reactive: true,
+    can_focus: true,
+    opacity: 0,
+    x: 0,
+    y: 0,
+    width: 1,
+    height: 1,
+  });
+
+  actor.connectObject(
+    "key-press-event",
+    (_actor, event) => {
+      const keySymbol = event.get_key_symbol?.();
+      if (keySymbol === Clutter.KEY_Escape) {
+        exitResize("escape");
+        return Clutter.EVENT_STOP;
+      }
+      return handleResizeKeyPress(state, keySymbol);
+    },
+    state,
+  );
+  actor.connectObject(
+    "key-release-event",
+    (_actor, event) => handleResizeKeyRelease(event, exitResize),
+    state,
+  );
+
+  Main.uiGroup.add_child(actor);
+  state.modalActor = actor;
+  state.modalGrab = Main.pushModal(actor);
+  if (!state.modalGrab) {
+    releaseModalGrab(state);
+    return false;
+  }
+  return true;
+}
+
+function releaseModalGrab(state) {
+  if (state.modalGrab) {
+    Main.popModal(state.modalGrab);
+    state.modalGrab = null;
+  }
+  state.modalActor?.disconnectObject?.(state);
+  state.modalActor?.destroy();
+  state.modalActor = null;
+}
+
+function suppressSuperArrowBindings(state, logger) {
+  state.suppressedBindings ??= new Map();
+  if (state.suppressedBindings.size > 0) {
+    return;
+  }
+
+  const { settings, keyNamesBySchema } = getConflictKeybindingIndex();
+  for (const conflictSettings of settings) {
+    const schema = conflictSettings.schema_id;
+    const keys = keyNamesBySchema.get(schema) ?? [];
+    for (const key of keys) {
+      const bindings = conflictSettings.get_strv(key);
+      if (!Array.isArray(bindings) || bindings.length === 0) {
+        continue;
+      }
+
+      const filtered = bindings.filter((binding) =>
+        !isSuperArrowBinding(binding)
+      );
+      if (filtered.length === bindings.length) {
+        continue;
+      }
+
+      rememberSuppressedBinding(state, schema, key, bindings);
+      conflictSettings.set_strv(key, filtered);
+      logger.verboseLog(
+        `win_mouseresize: suppressed ${schema}::${key} (${bindings.join(", ")})`,
+      );
+    }
+  }
+}
+
+function restoreSuppressedBindings(state) {
+  const { settingsBySchema } = getConflictKeybindingIndex();
+  for (const [schema, keys] of state.suppressedBindings ?? []) {
+    const settings = settingsBySchema.get(schema);
+    if (!settings) {
+      continue;
+    }
+    for (const [key, bindings] of keys) {
+      settings.set_strv(key, bindings);
+    }
+  }
+  state.suppressedBindings?.clear();
+}
+
+function rememberSuppressedBinding(state, schema, key, bindings) {
+  if (!state.suppressedBindings.has(schema)) {
+    state.suppressedBindings.set(schema, new Map());
+  }
+  const schemaBindings = state.suppressedBindings.get(schema);
+  if (!schemaBindings.has(key)) {
+    schemaBindings.set(key, bindings);
+  }
+}
+
+function isSuperArrowBinding(binding) {
+  if (typeof binding !== "string") {
+    return false;
+  }
+  if (!binding.includes("<Super>")) {
+    return false;
+  }
+
+  return /(?:^|>)(Left|Right|Up|Down|KP_Left|KP_Right|KP_Up|KP_Down)$/.test(
+    binding,
+  );
 }
 
 // Indicator helpers
@@ -348,6 +615,9 @@ function _newState() {
   return {
     active: false,
     cursorTracker: null,
+    modalActor: null,
+    modalGrab: null,
+    suppressedBindings: new Map(),
     win: null,
     winId: null,
     indicator: null,
@@ -356,8 +626,9 @@ function _newState() {
     edges: null,
     startRect: null,
     startPoint: null,
+    currentRect: null,
     minSize: null,
-    pendingPoint: null,
+    pendingResize: null,
     pendingRect: null,
     resizeSourceId: 0,
     indicatorSourceId: 0,
@@ -369,12 +640,31 @@ function resetState(state) {
   Object.assign(state, _newState());
 }
 
+function getConflictKeybindingIndex() {
+  let index = STATE_MAP.get(STATE_KEYS.WIN_MOUSE_RESIZE_CONFLICT_INDEX);
+  if (!index) {
+    index = createConflictKeybindingIndex();
+    STATE_MAP.set(STATE_KEYS.WIN_MOUSE_RESIZE_CONFLICT_INDEX, index);
+  }
+  return index;
+}
+
 function normalizeIndicatorColor(value, fallback) {
   if (typeof value !== "string") {
     return fallback;
   }
   const trimmed = value.trim();
-  return trimmed ? trimmed : fallback;
+  return isSafeIndicatorColor(trimmed) ? trimmed : fallback;
+}
+
+function isSafeIndicatorColor(value) {
+  if (!value || /[;{}]/.test(value)) {
+    return false;
+  }
+  return /^(#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\([\d\s.,%+-]+\)|[a-zA-Z][a-zA-Z0-9-]*)$/
+    .test(
+      value,
+    );
 }
 
 function normalizeIndicatorBorderSize(value) {

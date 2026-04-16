@@ -2,17 +2,20 @@
 
 import Adw from "gi://Adw";
 import Gdk from "gi://Gdk";
-import Gio from "gi://Gio";
 import GLib from "gi://GLib";
 import Gtk from "gi://Gtk";
 import { ExtensionPreferences } from "resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js";
 import {
   ACTION_MODE_NAMES,
   COMMAND_DEFINITIONS,
-  COMMON_KEYBINDING_SCHEMAS,
   KEYBINDING_FLAG_NAMES,
-  parseWinOptsizeConfig,
 } from "./common.js";
+import {
+  cloneWinOptsizeConfig,
+  createConflictKeybindingIndex,
+  findConflictingKeybindings,
+  parseWinOptsizeConfig,
+} from "./utils.js";
 
 function uniqueBindings(bindings) {
   const seen = new Set();
@@ -86,35 +89,9 @@ function captureShortcut(parent, onDone) {
 }
 
 function createConflictChecker() {
-  const conflictSettings = COMMON_KEYBINDING_SCHEMAS.map(
-    (schema) => new Gio.Settings({ schema }),
-  );
-  const conflictKeyNames = new Map(
-    conflictSettings.map((settings) => {
-      const keys = settings.settings_schema.list_keys().filter((key) => {
-        const keyInfo = settings.settings_schema.get_key(key);
-        const valueType = keyInfo?.get_value_type?.();
-        return valueType?.equal(new GLib.VariantType("as"));
-      });
-      return [settings.schema_id, keys];
-    }),
-  );
+  const conflictIndex = createConflictKeybindingIndex();
   const findConflicts = (accel) => {
-    const matches = [];
-    if (!accel) {
-      return matches;
-    }
-    for (const settings of conflictSettings) {
-      const schemaId = settings.schema_id;
-      const keys = conflictKeyNames.get(schemaId) ?? [];
-      for (const key of keys) {
-        const current = settings.get_strv(key);
-        if (current?.includes(accel)) {
-          matches.push({ schemaId, key });
-        }
-      }
-    }
-    return matches;
+    return findConflictingKeybindings(conflictIndex, accel);
   };
   return { findConflicts };
 }
@@ -265,8 +242,20 @@ function buildKeybindingGroup(
   return group;
 }
 
-function buildSpinRow({ title, value, digits, min, max, step, onChange }) {
-  const row = new Adw.ActionRow({ title });
+function buildSpinRow({
+  settings,
+  registerSettingsChange,
+  key,
+  title,
+  subtitle,
+  value,
+  digits,
+  min,
+  max,
+  step,
+  onChange,
+}) {
+  const row = new Adw.ActionRow({ title, subtitle: subtitle ?? null });
   const adjustment = new Gtk.Adjustment({
     lower: min,
     upper: max,
@@ -278,56 +267,37 @@ function buildSpinRow({ title, value, digits, min, max, step, onChange }) {
     digits,
     numeric: true,
   });
-  spin.set_value(value ?? min);
-  spin.connect("value-changed", () => {
-    onChange(spin.get_value());
-  });
-  row.add_suffix(spin);
-  return row;
-}
-
-function buildIntRow({
-  settings,
-  registerSettingsChange,
-  key,
-  title,
-  subtitle,
-  min,
-  max,
-  step,
-}) {
-  const row = new Adw.ActionRow({ title, subtitle });
-  const adjustment = new Gtk.Adjustment({
-    lower: min,
-    upper: max,
-    step_increment: step,
-    page_increment: step,
-  });
-  const spin = new Gtk.SpinButton({
-    adjustment,
-    digits: 0,
-    numeric: true,
-  });
   spin.set_valign(Gtk.Align.CENTER);
-  spin.set_value(settings.get_int(key));
-  row.add_suffix(spin);
 
   let settingValue = false;
-  const applyFromSettings = () => {
+  const applyValue = (nextValue) => {
     settingValue = true;
-    spin.set_value(settings.get_int(key));
+    spin.set_value(nextValue ?? min);
     settingValue = false;
   };
 
-  registerSettingsChange(key, applyFromSettings);
+  if (settings && key && registerSettingsChange) {
+    applyValue(settings.get_int(key));
+    registerSettingsChange(key, () => {
+      applyValue(settings.get_int(key));
+    });
+  } else {
+    applyValue(value);
+  }
 
   spin.connect("value-changed", () => {
     if (settingValue) {
       return;
     }
-    settings.set_int(key, Math.round(spin.get_value()));
+    const nextValue = spin.get_value();
+    if (settings && key) {
+      settings.set_int(key, Math.round(nextValue));
+      return;
+    }
+    onChange?.(nextValue);
   });
 
+  row.add_suffix(spin);
   return row;
 }
 
@@ -674,7 +644,8 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
   jsonRow.set_child(jsonScroll);
   jsonRow.set_hexpand(true);
   jsonRow.set_vexpand(true);
-  let config = parseWinOptsizeConfig(settings.get_string("win-optsize-config"));
+  let config = parseWinOptsizeConfig(settings.get_string("win-optsize-config"))
+    .value ?? cloneWinOptsizeConfig();
   const applyButton = new Gtk.Button({ label: "Apply" });
   const reloadButton = new Gtk.Button({ label: "Reload" });
   applyButton.set_sensitive(false);
@@ -821,7 +792,8 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
 
   const render = () => {
     clearRows();
-    config = parseWinOptsizeConfig(settings.get_string("win-optsize-config"));
+    config = parseWinOptsizeConfig(settings.get_string("win-optsize-config"))
+      .value ?? cloneWinOptsizeConfig();
     if (!jsonDirty) {
       setJsonText(serializeConfig(config));
     }
@@ -934,7 +906,7 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
   });
 
   applyButton.connect("clicked", () => {
-    const result = parseWinOptsizeConfig(getJsonText(), { strict: true });
+    const result = parseWinOptsizeConfig(getJsonText());
     if (!result.ok) {
       jsonErrorRow.set_subtitle(result.error);
       jsonErrorRow.set_visible(true);
@@ -1019,12 +991,13 @@ function buildWinMouseResizeConfigGroup(settings, registerSettingsChange) {
     }),
   );
   group.add(
-    buildIntRow({
+    buildSpinRow({
       settings,
       registerSettingsChange,
       key: "win-mouseresize-border-size",
       title: "Border size",
       subtitle: "Border thickness in pixels.",
+      digits: 0,
       min: 1,
       max: 20,
       step: 1,

@@ -3,11 +3,8 @@
 import Meta from "gi://Meta";
 import Shell from "gi://Shell";
 import { COMMANDS } from "./cmds.js";
-import {
-  ACTION_MODE_NAMES,
-  KEYBINDING_FLAG_NAMES,
-  parseWinOptsizeConfig,
-} from "./common.js";
+import { ACTION_MODE_NAMES, KEYBINDING_FLAG_NAMES } from "./common.js";
+import { cloneWinOptsizeConfig, parseWinOptsizeConfig } from "./utils.js";
 
 const KEYBINDING_KEYS = COMMANDS.map((command) => command.id);
 const ACCELERATOR_PATTERN = /^(?:<[^>]+>)*[^<>]+$/;
@@ -63,9 +60,10 @@ export class ConfigManager {
       SHELL_ACTION_MODES,
       Shell.ActionMode.NORMAL,
     );
-    const winOptsize = parseWinOptsizeConfig(
+    const parsedWinOptsize = parseWinOptsizeConfig(
       this._settings.get_string("win-optsize-config"),
     );
+    const winOptsize = parsedWinOptsize.value ?? cloneWinOptsizeConfig();
     const winMouseResize = {
       borderColor: this._settings.get_string("win-mouseresize-border-color"),
       backgroundColor: this._settings.get_string(
@@ -73,6 +71,12 @@ export class ConfigManager {
       ),
       borderSize: this._settings.get_int("win-mouseresize-border-size"),
     };
+
+    if (!parsedWinOptsize.ok) {
+      this._logger.verboseLog(
+        `Invalid win-optsize-config, using defaults: ${parsedWinOptsize.error}`,
+      );
+    }
 
     this.config = {
       keybindings,
@@ -103,30 +107,12 @@ export class ConfigManager {
       cleaned.push(trimmed);
     }
 
-    if (changed && !this._arraysEqual(bindings, cleaned)) {
+    if (changed) {
       this._settings.set_strv(key, cleaned);
       this._logger.verboseLog(`Sanitized invalid keybindings for ${key}`);
     }
 
     return cleaned;
-  }
-
-  _arraysEqual(a, b) {
-    if (a === b) {
-      return true;
-    }
-    if (!Array.isArray(a) || !Array.isArray(b)) {
-      return false;
-    }
-    if (a.length !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < a.length; i += 1) {
-      if (a[i] !== b[i]) {
-        return false;
-      }
-    }
-    return true;
   }
 
   _ensureDefaultsSaved() {
@@ -169,10 +155,10 @@ export class ConfigManager {
     }
 
     this._settings.reset("win-optsize-config");
-    this._settings.set_int("config-version", CURRENT_CONFIG_REVISION);
     this._logger.log(
       `Reset win-optsize-config for config revision ${CURRENT_CONFIG_REVISION}`,
     );
+    this._settings.set_int("config-version", CURRENT_CONFIG_REVISION);
   }
 
   _parseEnumValue(value, map, fallback) {
