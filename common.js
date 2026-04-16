@@ -33,21 +33,20 @@ export const COMMON_KEYBINDING_SCHEMAS = [
 
 export const DEFAULT_WIN_OPTSIZE_CONFIG = {
   scales: [
-    [0.8, null],
-    [0.7, 0.8],
-    [0.6, 0.8],
+    [0.95, 0.9],
   ],
   breakpoints: [
     {
       maxWidth: 1920,
-      scales: [[0.8, null]],
+      scales: [[0.95, 0.9]],
     },
     {
       maxWidth: 2560,
-      scales: [
-        [0.8, 0.8],
-        [0.7, 0.8],
-      ],
+      scales: [[0.95, 0.9]],
+    },
+    {
+      maxWidth: 3840,
+      scales: [[0.55, 0.9]],
     },
   ],
 };

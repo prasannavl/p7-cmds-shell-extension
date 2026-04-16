@@ -420,6 +420,46 @@ function buildColorRow({
   return row;
 }
 
+function getScaleIncrement(value) {
+  if (value <= 1) {
+    return 0.1;
+  }
+  if (value <= 512) {
+    return 8;
+  }
+  if (value <= 1024) {
+    return 16;
+  }
+  return 32;
+}
+
+function updateScaleSpinIncrements(spin, adjustment) {
+  const increment = getScaleIncrement(spin.get_value());
+  adjustment.set_step_increment(increment);
+  adjustment.set_page_increment(increment);
+}
+
+function normalizeScaleSpinValue(value, previousValue) {
+  if (value <= 1 || Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof previousValue === "number" && previousValue <= 1) {
+    return Math.max(2, Math.ceil(value));
+  }
+  return Math.trunc(value);
+}
+
+function configureCompactSpin(spin, widthChars = 6) {
+  spin.set_valign(Gtk.Align.CENTER);
+  spin.set_width_chars(widthChars);
+  spin.set_max_width_chars(widthChars);
+}
+
+function configureCompactButton(button) {
+  button.set_valign(Gtk.Align.CENTER);
+  button.set_halign(Gtk.Align.END);
+}
+
 function buildScaleRow(scale, index, onChange, onRemove) {
   if (!Array.isArray(scale)) {
     scale = [0.8, 0.8];
@@ -432,44 +472,62 @@ function buildScaleRow(scale, index, onChange, onRemove) {
     title: `Scale ${index + 1}`,
   });
 
+  const widthAdjustment = new Gtk.Adjustment({
+    lower: 0.1,
+    upper: 10000,
+    step_increment: 0.1,
+    page_increment: 0.1,
+  });
+
   const widthSpin = new Gtk.SpinButton({
-    adjustment: new Gtk.Adjustment({
-      lower: 0.1,
-      upper: 1,
-      step_increment: 0.05,
-      page_increment: 0.1,
-    }),
+    adjustment: widthAdjustment,
     digits: 2,
     numeric: true,
+    snap_to_ticks: false,
   });
+  configureCompactSpin(widthSpin);
   widthSpin.set_value(widthValue);
 
+  const heightAdjustment = new Gtk.Adjustment({
+    lower: 0.1,
+    upper: 10000,
+    step_increment: 0.1,
+    page_increment: 0.1,
+  });
+
   const heightSpin = new Gtk.SpinButton({
-    adjustment: new Gtk.Adjustment({
-      lower: 0.1,
-      upper: 1,
-      step_increment: 0.05,
-      page_increment: 0.1,
-    }),
+    adjustment: heightAdjustment,
     digits: 2,
     numeric: true,
+    snap_to_ticks: false,
   });
+  configureCompactSpin(heightSpin);
   heightSpin.set_value(typeof heightValue === "number" ? heightValue : 0.8);
   heightSpin.set_sensitive(!autoHeight);
+
+  updateScaleSpinIncrements(widthSpin, widthAdjustment);
+  updateScaleSpinIncrements(heightSpin, heightAdjustment);
+
+  let settingWidthValue = false;
+  let settingHeightValue = false;
 
   const autoHeightToggle = new Gtk.CheckButton({
     label: "Auto",
     active: autoHeight,
   });
+  autoHeightToggle.set_valign(Gtk.Align.CENTER);
 
   const removeButton = new Gtk.Button({
     label: "Remove",
   });
+  configureCompactButton(removeButton);
 
   const controlBox = new Gtk.Box({
     orientation: Gtk.Orientation.HORIZONTAL,
     spacing: 6,
   });
+  controlBox.set_halign(Gtk.Align.END);
+  controlBox.set_valign(Gtk.Align.CENTER);
   controlBox.append(widthSpin);
   controlBox.append(heightSpin);
   controlBox.append(autoHeightToggle);
@@ -477,11 +535,31 @@ function buildScaleRow(scale, index, onChange, onRemove) {
   row.add_suffix(controlBox);
 
   widthSpin.connect("value-changed", () => {
-    scale[0] = widthSpin.get_value();
+    if (settingWidthValue) {
+      return;
+    }
+    settingWidthValue = true;
+    const value = normalizeScaleSpinValue(widthSpin.get_value(), scale[0]);
+    if (value !== widthSpin.get_value()) {
+      widthSpin.set_value(value);
+    }
+    updateScaleSpinIncrements(widthSpin, widthAdjustment);
+    scale[0] = value;
+    settingWidthValue = false;
     onChange();
   });
   heightSpin.connect("value-changed", () => {
-    scale[1] = heightSpin.get_value();
+    if (settingHeightValue) {
+      return;
+    }
+    settingHeightValue = true;
+    const value = normalizeScaleSpinValue(heightSpin.get_value(), scale[1]);
+    if (value !== heightSpin.get_value()) {
+      heightSpin.set_value(value);
+    }
+    updateScaleSpinIncrements(heightSpin, heightAdjustment);
+    scale[1] = value;
+    settingHeightValue = false;
     onChange();
   });
   autoHeightToggle.connect("toggled", () => {
@@ -489,7 +567,14 @@ function buildScaleRow(scale, index, onChange, onRemove) {
       scale[1] = null;
       heightSpin.set_sensitive(false);
     } else {
-      scale[1] = heightSpin.get_value();
+      const value = normalizeScaleSpinValue(heightSpin.get_value(), scale[1]);
+      if (value !== heightSpin.get_value()) {
+        settingHeightValue = true;
+        heightSpin.set_value(value);
+        settingHeightValue = false;
+      }
+      updateScaleSpinIncrements(heightSpin, heightAdjustment);
+      scale[1] = value;
       heightSpin.set_sensitive(true);
     }
     onChange();
@@ -538,6 +623,7 @@ function buildScaleList({
 
   const addScaleRow = new Adw.ActionRow({ title: addRowTitle ?? "Add scale" });
   const addScaleButton = new Gtk.Button({ label: "Add" });
+  configureCompactButton(addScaleButton);
   addScaleButton.connect("clicked", () => {
     const scale = [0.8, 0.8];
     scales.push(scale);
@@ -658,6 +744,7 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
     });
 
     const removeButton = new Gtk.Button({ label: "Remove" });
+    configureCompactButton(removeButton);
     removeButton.connect("clicked", onRemove);
     expander.add_suffix(removeButton);
 
@@ -754,7 +841,7 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
     addRow(
       new Adw.ActionRow({
         title: "Default scales",
-        subtitle: "Used when no breakpoint matches",
+        subtitle: "Relative to screen size when ≤1. Exact pixels when >1",
       }),
     );
 
@@ -806,6 +893,7 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
       title: "Add breakpoint",
     });
     const addBreakpointButton = new Gtk.Button({ label: "Add" });
+    configureCompactButton(addBreakpointButton);
     addBreakpointButton.connect("clicked", () => {
       const breakpoint = {
         maxWidth: 1920,

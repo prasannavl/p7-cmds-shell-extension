@@ -11,6 +11,7 @@ import {
 
 const KEYBINDING_KEYS = COMMANDS.map((command) => command.id);
 const ACCELERATOR_PATTERN = /^(?:<[^>]+>)*[^<>]+$/;
+const CURRENT_CONFIG_REVISION = 2;
 
 const META_KEYBINDING_FLAGS = Object.fromEntries(
   KEYBINDING_FLAG_NAMES.map((name) => [name, Meta.KeyBindingFlags[name]]),
@@ -27,6 +28,8 @@ export class ConfigManager {
 
     // Callbacks for config changes
     this._configChangeCallbacks = new Set();
+
+    this._ensureConfigRevision();
 
     // Connect to settings changes
     this._settings.connectObject(
@@ -128,6 +131,7 @@ export class ConfigManager {
 
   _ensureDefaultsSaved() {
     const keys = [
+      "config-version",
       ...KEYBINDING_KEYS,
       "keybinding-flags",
       "keybinding-actionmode",
@@ -156,6 +160,19 @@ export class ConfigManager {
       return true;
     }
     return false;
+  }
+
+  _ensureConfigRevision() {
+    const configVersion = this._settings.get_int("config-version");
+    if (configVersion >= CURRENT_CONFIG_REVISION) {
+      return;
+    }
+
+    this._settings.reset("win-optsize-config");
+    this._settings.set_int("config-version", CURRENT_CONFIG_REVISION);
+    this._logger.log(
+      `Reset win-optsize-config for config revision ${CURRENT_CONFIG_REVISION}`,
+    );
   }
 
   _parseEnumValue(value, map, fallback) {

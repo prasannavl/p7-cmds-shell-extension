@@ -15,6 +15,25 @@ export function getFocusedWindow() {
   return display.get_focus_window();
 }
 
+export function resolveTopLevelWindow(win) {
+  if (!win) {
+    return null;
+  }
+
+  let current = win;
+  const seen = new Set([current]);
+  while (typeof current.get_transient_for === "function") {
+    const parent = current.get_transient_for();
+    if (!parent || seen.has(parent)) {
+      break;
+    }
+    current = parent;
+    seen.add(current);
+  }
+
+  return current;
+}
+
 export function getMaximizeState(metaWindow) {
   const flags = metaWindow.get_maximize_flags?.() ?? 0;
   const hFlag = Meta.MaximizeFlags?.HORIZONTAL ?? 1;
@@ -45,14 +64,18 @@ export function isWindowFullscreen(win) {
 
 export function normalizeWindow(win) {
   if (!win) {
-    return;
+    return false;
   }
+  let changed = false;
   if (isWindowFullscreen(win)) {
     win.unmake_fullscreen();
+    changed = true;
   }
   if (isWindowMaximized(win)) {
     win.unmaximize(MaximizeFlags.BOTH);
+    changed = true;
   }
+  return changed;
 }
 
 export function getCursorTracker() {

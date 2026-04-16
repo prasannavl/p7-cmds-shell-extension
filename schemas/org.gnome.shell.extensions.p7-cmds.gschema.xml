@@ -1,6 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <schemalist>
   <schema id="org.gnome.shell.extensions.p7-cmds" path="/org/gnome/shell/extensions/p7-cmds/">
+    <key name="config-version" type="i">
+      <default>0</default>
+      <summary>Configuration version</summary>
+      <description>Version number used to reset managed settings like win-optsize-config when defaults change.</description>
+    </key>
     <key name="cmd-win-optsize" type="as">
       <default>["&lt;Super&gt;x"]</default>
       <summary>Optimal size focused window</summary>
@@ -12,7 +17,7 @@
       <description>Resize the focused window by holding Super and moving the mouse beyond the window edges.</description>
     </key>
     <key name="win-optsize-config" type="s">
-      <default>"{\"scales\":[[0.8,null],[0.7,0.8],[0.6,0.8]],\"breakpoints\":[{\"maxWidth\":1920,\"scales\":[[0.8,null]]},{\"maxWidth\":2560,\"scales\":[[0.8,0.8],[0.7,0.8]]}]}"</default>
+      <default>"{\"scales\":[[0.95,0.9]],\"breakpoints\":[{\"maxWidth\":1920,\"scales\":[[0.95,0.9]]},{\"maxWidth\":2560,\"scales\":[[0.95,0.9]]},{\"maxWidth\":3840,\"scales\":[[0.55,0.9]]}]}"</default>
       <summary>Win optsize config</summary>
       <description>JSON config for win_optsize breakpoints and scales.</description>
     </key>

@@ -82,21 +82,20 @@ Example (defaults):
 ```json
 {
   "scales": [
-    [0.8, null],
-    [0.7, 0.8],
-    [0.6, 0.8]
+    [0.95, 0.9]
   ],
   "breakpoints": [
     {
       "maxWidth": 1920,
-      "scales": [[0.8, null]]
+      "scales": [[0.95, 0.9]]
     },
     {
       "maxWidth": 2560,
-      "scales": [
-        [0.8, 0.8],
-        [0.7, 0.8]
-      ]
+      "scales": [[0.95, 0.9]]
+    },
+    {
+      "maxWidth": 3840,
+      "scales": [[0.55, 0.9]]
     }
   ]
 }
@@ -105,8 +104,12 @@ Example (defaults):
 Notes:
 
 - `scales` applies when no breakpoint matches.
-- Each scale is `[widthScale, heightScale]`. Use `null` for auto height based on
-  the monitor aspect ratio.
+- Each scale is `[width, height]`.
+- Values from `0` to `1` are treated as fractions of the current work area.
+- Values greater than `1` are treated as exact pixel sizes.
+- Exact pixel sizes larger than the current monitor axis fall back to `0.85` of
+  that axis.
+- Use `null` for auto sizing based on the monitor aspect ratio.
 - Optional `aspectBasedInversion: true` will swap width/height scales on
   portrait screens.
 
