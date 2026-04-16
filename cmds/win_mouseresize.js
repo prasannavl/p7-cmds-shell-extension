@@ -18,7 +18,7 @@ import { STATE_KEYS, STATE_MAP } from "../cmds.js";
 import { createConflictKeybindingIndex } from "../utils.js";
 
 const MIN_RESIZE_SIZE = 10;
-const KEYBOARD_RESIZE_STEP = 50;
+const KEYBOARD_RESIZE_STEP = 100;
 const DEFAULT_INDICATOR_BORDER = 3;
 const DEFAULT_INDICATOR_BORDER_COLOR = "rgba(230, 105, 105, 0.8)";
 const DEFAULT_INDICATOR_BACKGROUND_COLOR = "rgba(70, 70, 70, 0.2)";
@@ -90,8 +90,9 @@ export function win_mouseresize(config, logger) {
     }
     const rect = state.win.get_frame_rect?.();
     if (rect) {
-      syncCurrentRect(state, rect);
-      queueIndicatorSync(state, rect);
+      const anchoredRect = enforceLastRequestedAnchors(state, rect);
+      syncCurrentRect(state, anchoredRect);
+      queueIndicatorSync(state, anchoredRect);
     }
   };
   state.win.connectObject("size-changed", handleWindowRectChange, state);
@@ -172,14 +173,12 @@ function queueResizeRect(state, rect, point, mode) {
     if (!state.active || !state.win || !pendingResize?.rect) {
       return GLib.SOURCE_REMOVE;
     }
-
+    state.lastResizeRect = cloneRect(pendingResize.rect);
     applyResizeRect(state.win, pendingResize.rect);
     syncCurrentRect(state, pendingResize.rect);
     queueIndicatorSync(state, pendingResize.rect);
 
-    if (pendingResize.mode === "mouse") {
-      reanchorClampedAxes(state, pendingResize.rect, pendingResize.point);
-    } else if (pendingResize.mode === "keyboard") {
+    if (pendingResize.mode === "keyboard") {
       reanchorMouseResize(state, pendingResize.rect, getPointerPoint());
     }
 
@@ -213,20 +212,37 @@ function reanchorMouseResize(state, rect, point) {
   state.startPoint = { x: point.x, y: point.y };
 }
 
-function reanchorClampedAxes(state, rect, point) {
-  if (!rect || !point) {
-    return;
+function enforceLastRequestedAnchors(state, actualRect) {
+  const requestedRect = state.lastResizeRect;
+  if (!actualRect || !requestedRect || !state.edges) {
+    return actualRect;
   }
-  if (rect.width === state.minSize.width) {
-    state.startRect.x = rect.x;
-    state.startRect.width = rect.width;
-    state.startPoint.x = point.x;
+
+  let x = actualRect.x;
+  let y = actualRect.y;
+  if (state.edges.right) {
+    x = requestedRect.x;
+  } else if (state.edges.left) {
+    x = requestedRect.x + requestedRect.width - actualRect.width;
   }
-  if (rect.height === state.minSize.height) {
-    state.startRect.y = rect.y;
-    state.startRect.height = rect.height;
-    state.startPoint.y = point.y;
+  if (state.edges.bottom) {
+    y = requestedRect.y;
+  } else if (state.edges.top) {
+    y = requestedRect.y + requestedRect.height - actualRect.height;
   }
+
+  if (x === actualRect.x && y === actualRect.y) {
+    return actualRect;
+  }
+
+  const anchoredRect = {
+    x,
+    y,
+    width: actualRect.width,
+    height: actualRect.height,
+  };
+  applyResizeRect(state.win, anchoredRect);
+  return anchoredRect;
 }
 
 // Window helpers
@@ -264,7 +280,7 @@ function getWindowMinSize(win) {
 
 function ensureLockedEdges(state, point, rect) {
   const delta = getPointDelta(state.startPoint, point);
-  return lockEdges(state, delta, point, rect);
+  return lockEdges(state, delta, state.startPoint, rect);
 }
 
 function ensureLockedEdgesForDelta(state, delta, point, rect) {
@@ -334,40 +350,29 @@ function computeResizeRectFromDelta(rect, edges, delta, minSize) {
   const minWidth = minSize?.width ?? MIN_RESIZE_SIZE;
   const minHeight = minSize?.height ?? MIN_RESIZE_SIZE;
 
-  let x = rect.x;
-  let y = rect.y;
-  let width = rect.width;
-  let height = rect.height;
+  let left = rect.x;
+  let right = rect.x + rect.width;
+  let top = rect.y;
+  let bottom = rect.y + rect.height;
 
   if (edges.left) {
-    x = rect.x + dx;
-    width = rect.width - dx;
+    left = Math.min(rect.x + dx, right - minWidth);
   } else if (edges.right) {
-    width = rect.width + dx;
+    right = Math.max(rect.x + rect.width + dx, left + minWidth);
   }
 
   if (edges.top) {
-    y = rect.y + dy;
-    height = rect.height - dy;
+    top = Math.min(rect.y + dy, bottom - minHeight);
   } else if (edges.bottom) {
-    height = rect.height + dy;
+    bottom = Math.max(rect.y + rect.height + dy, top + minHeight);
   }
 
-  if (width < minWidth) {
-    width = minWidth;
-    if (edges.left) {
-      x = rect.x + rect.width - width;
-    }
-  }
-
-  if (height < minHeight) {
-    height = minHeight;
-    if (edges.top) {
-      y = rect.y + rect.height - height;
-    }
-  }
-
-  return { x, y, width, height };
+  return {
+    x: left,
+    y: top,
+    width: right - left,
+    height: bottom - top,
+  };
 }
 
 function applyResizeRect(win, rect) {
@@ -521,7 +526,9 @@ function suppressSuperArrowBindings(state, logger) {
       rememberSuppressedBinding(state, schema, key, bindings);
       conflictSettings.set_strv(key, filtered);
       logger.verboseLog(
-        `win_mouseresize: suppressed ${schema}::${key} (${bindings.join(", ")})`,
+        `win_mouseresize: suppressed ${schema}::${key} (${
+          bindings.join(", ")
+        })`,
       );
     }
   }
@@ -630,6 +637,7 @@ function _newState() {
     minSize: null,
     pendingResize: null,
     pendingRect: null,
+    lastResizeRect: null,
     resizeSourceId: 0,
     indicatorSourceId: 0,
     superWatchSourceId: 0,

@@ -2,9 +2,7 @@
 
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { DEFAULT_WIN_OPTSIZE_CONFIG } from "../common.js";
-import {
-  normalizeWinOptsizeConfig,
-} from "../utils.js";
+import { normalizeWinOptsizeConfig } from "../utils.js";
 import {
   connectObjectIfSignal,
   getFocusedWindow,
@@ -135,7 +133,10 @@ function isRestoredWindow(win) {
 function maybeResetWinOptsizeCycle(win, cycleState, logger) {
   const currentRect = cloneRect(win.get_frame_rect());
   if (!rectEquals(currentRect, cycleState.lastAppliedRect)) {
-    if (cycleState.index !== -1 || cycleState.originalRect || cycleState.lastAppliedRect) {
+    if (
+      cycleState.index !== -1 || cycleState.originalRect ||
+      cycleState.lastAppliedRect
+    ) {
       logger?.verboseLog?.(
         "win_optsize: detected external geometry change, resetting cycle",
       );
@@ -203,6 +204,9 @@ function applyWinOptsize(win, config, cycleState) {
     targetRect.width,
     targetRect.height,
   );
+  // Mutter can leave a fully offscreen window actor stale until overview or
+  // Alt-Tab restacks the window.
+  restackWindow(win);
 }
 
 function cloneRect(rect) {
@@ -253,6 +257,11 @@ function clamp(value, min, max) {
     return max;
   }
   return value;
+}
+
+function restackWindow(win) {
+  const workspace = win.get_workspace?.();
+  win.raise_and_make_recent_on_workspace?.(workspace);
 }
 
 function resolveWinOptsizeScales(winConfig, workArea) {
