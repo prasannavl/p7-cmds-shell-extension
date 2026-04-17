@@ -1,5 +1,6 @@
 // cmds/win_optsize.js
 
+import GLib from "gi://GLib";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { DEFAULT_WIN_OPTSIZE_CONFIG } from "../common.js";
 import { normalizeWinOptsizeConfig } from "../utils.js";
@@ -30,6 +31,7 @@ export function win_optsize(config, logger) {
 
   const cycleState = getWinOptsizeState(win);
   cancelPendingWinOptsize(win, cycleState);
+  cancelPendingWinOptsizeSync(cycleState);
 
   maybeResetWinOptsizeCycle(win, cycleState, logger);
 
@@ -58,6 +60,7 @@ function getWinOptsizeState(win) {
       originalRect: null,
       lastAppliedRect: null,
       pending: null,
+      syncSourceId: 0,
     };
     STATE_MAP.set(STATE_KEYS.WIN_OPTSIZE, cycleState);
   }
@@ -70,6 +73,7 @@ export function win_optsize_destroy() {
     return;
   }
   cancelPendingWinOptsize(cycleState.win, cycleState);
+  cancelPendingWinOptsizeSync(cycleState);
 }
 
 function queuePendingWinOptsize(win, config, logger, cycleState) {
@@ -124,6 +128,14 @@ function cancelPendingWinOptsize(
     cycleState.pending = null;
   }
   win.disconnectObject?.(pending);
+}
+
+function cancelPendingWinOptsizeSync(cycleState) {
+  if (!cycleState?.syncSourceId) {
+    return;
+  }
+  GLib.source_remove(cycleState.syncSourceId);
+  cycleState.syncSourceId = 0;
 }
 
 function isRestoredWindow(win) {
@@ -204,9 +216,7 @@ function applyWinOptsize(win, config, cycleState) {
     targetRect.width,
     targetRect.height,
   );
-  // Mutter can leave a fully offscreen window actor stale until overview or
-  // Alt-Tab restacks the window.
-  restackWindow(win);
+  queueWinOptsizeSync(win, targetRect, cycleState);
 }
 
 function cloneRect(rect) {
@@ -259,9 +269,28 @@ function clamp(value, min, max) {
   return value;
 }
 
-function restackWindow(win) {
-  const workspace = win.get_workspace?.();
-  win.raise_and_make_recent_on_workspace?.(workspace);
+function queueWinOptsizeSync(win, rect, cycleState) {
+  const targetRect = cloneRect(rect);
+
+  // Mutter can leave a fully offscreen window actor stale until a later shell
+  // transition, such as overview or Alt-Tab, causes another frame sync.
+  cycleState.syncSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+    cycleState.syncSourceId = 0;
+    win.move_resize_frame(
+      true,
+      targetRect.x,
+      targetRect.y,
+      targetRect.width,
+      targetRect.height,
+    );
+
+    const actor = win.get_compositor_private?.();
+    actor?.show?.();
+    actor?.queue_relayout?.();
+    actor?.queue_redraw?.();
+
+    return GLib.SOURCE_REMOVE;
+  });
 }
 
 function resolveWinOptsizeScales(winConfig, workArea) {
