@@ -2,7 +2,12 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [32] - 2026-02-22
+## [33] - 2026-04-17
+
+- Add additional Shift modifer to cycle locked edges for mouse resize
+- More resilient opt resize to mutter quirks
+
+## [32] - 2026-04-17
 
 - Fix mouse resize out of bounds reversal
 - Add keyboard shortcut during mouse resize
