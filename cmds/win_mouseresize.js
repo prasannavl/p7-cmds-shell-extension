@@ -60,6 +60,7 @@ export function win_mouseresize(config, logger) {
   state.currentRect = cloneRect(state.startRect);
   state.minSize = getWindowMinSize(win);
   state.startPoint = getPointerPoint();
+  state.shiftPressed = hasShiftKeyPressed();
 
   const handlePointerMove = () => {
     const point = getPointerPoint();
@@ -210,6 +211,46 @@ function syncCurrentRect(state, rect) {
 function reanchorMouseResize(state, rect, point) {
   state.startRect = cloneRect(rect);
   state.startPoint = { x: point.x, y: point.y };
+}
+
+function getResizeAnchorRect(state) {
+  return cloneRect(state.pendingResize?.rect) ?? cloneRect(state.currentRect);
+}
+
+function hasLockedEdges(edges) {
+  return Boolean(edges?.left || edges?.right || edges?.top || edges?.bottom);
+}
+
+function flipLockedEdges(state) {
+  if (!hasLockedEdges(state.edges)) {
+    return false;
+  }
+
+  state.edges = {
+    left: Boolean(state.edges.right),
+    right: Boolean(state.edges.left),
+    top: Boolean(state.edges.bottom),
+    bottom: Boolean(state.edges.top),
+  };
+
+  reanchorMouseResize(state, getResizeAnchorRect(state), getPointerPoint());
+  return true;
+}
+
+function handleShiftPress(state) {
+  if (state.shiftPressed) {
+    return false;
+  }
+  state.shiftPressed = true;
+  return flipLockedEdges(state);
+}
+
+function syncShiftKeyState(state) {
+  if (hasShiftKeyPressed()) {
+    return handleShiftPress(state);
+  }
+  state.shiftPressed = false;
+  return false;
 }
 
 function enforceLastRequestedAnchors(state, actualRect) {
@@ -403,7 +444,16 @@ function getResizeStepDelta(symbol) {
   }
 }
 
+function isShiftKeySymbol(symbol) {
+  return symbol === Clutter.KEY_Shift_L || symbol === Clutter.KEY_Shift_R;
+}
+
 function handleResizeKeyPress(state, symbol) {
+  if (isShiftKeySymbol(symbol)) {
+    handleShiftPress(state);
+    return Clutter.EVENT_STOP;
+  }
+
   const delta = getResizeStepDelta(symbol);
   if (!delta) {
     return Clutter.EVENT_PROPAGATE;
@@ -423,13 +473,18 @@ function handleResizeKeyPress(state, symbol) {
   return Clutter.EVENT_STOP;
 }
 
-function handleResizeKeyRelease(event, exitResize) {
+function handleResizeKeyRelease(state, event, exitResize) {
   if (!hasSuperKeyPressed()) {
     exitResize(`event ${event.type()}`);
     return Clutter.EVENT_STOP;
   }
 
   const keySymbol = event.get_key_symbol?.();
+  if (isShiftKeySymbol(keySymbol)) {
+    state.shiftPressed = false;
+    return Clutter.EVENT_STOP;
+  }
+
   if (
     keySymbol === Clutter.KEY_Left ||
     keySymbol === Clutter.KEY_KP_Left ||
@@ -476,7 +531,7 @@ function beginModalGrab(state, exitResize) {
   );
   actor.connectObject(
     "key-release-event",
-    (_actor, event) => handleResizeKeyRelease(event, exitResize),
+    (_actor, event) => handleResizeKeyRelease(state, event, exitResize),
     state,
   );
 
@@ -717,6 +772,9 @@ function connectExitSignals(state, exitResize) {
     "captured-event",
     (_actor, event) => {
       const type = event.type();
+      if (type === Clutter.EventType.KEY_STATE && syncShiftKeyState(state)) {
+        return Clutter.EVENT_STOP;
+      }
       if (
         type === Clutter.EventType.KEY_RELEASE ||
         type === Clutter.EventType.KEY_STATE
@@ -782,6 +840,11 @@ function hasSuperKeyPressed() {
     Clutter.ModifierType.MOD4_MASK;
   const { modifiers } = getPointerData();
   return (modifiers & SUPER_KEY_MASK) !== 0;
+}
+
+function hasShiftKeyPressed() {
+  const { modifiers } = getPointerData();
+  return (modifiers & Clutter.ModifierType.SHIFT_MASK) !== 0;
 }
 
 function connectOverviewSignals(state, onEvent) {
