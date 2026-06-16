@@ -142,14 +142,29 @@ export function getMonitorManager() {
 
 export function setResizeCursor(active) {
   const display = getDisplay();
-  const cursors = Meta.Cursor;
   const defaultCursorName = "DEFAULT";
   const resizeCursorNames = ["ALL_RESIZE", "MOVE"];
+
+  const metaCursors = Meta.Cursor;
+  if (metaCursors && typeof display?.set_cursor === "function") {
+    const cursorName = active
+      ? resizeCursorNames.find((name) => name in metaCursors) ??
+        defaultCursorName
+      : defaultCursorName;
+    display.set_cursor(metaCursors[cursorName]);
+    return;
+  }
+
+  const clutterCursors = Clutter.CursorType;
+  if (!clutterCursors || typeof global.stage?.set_cursor_type !== "function") {
+    return;
+  }
+
   const cursorName = active
-    ? resizeCursorNames.find((name) => name in cursors) ??
+    ? resizeCursorNames.find((name) => name in clutterCursors) ??
       defaultCursorName
     : defaultCursorName;
-  display.set_cursor(cursors[cursorName]);
+  global.stage.set_cursor_type(clutterCursors[cursorName]);
 }
 
 function getDefaultSeat() {
