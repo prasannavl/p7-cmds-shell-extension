@@ -1,16 +1,30 @@
 UUID := p7-cmds@prasannavl.com
 DIST_DIR := dist
 SCHEMAS_DIR := schemas
-TOPLEVEL_JS := $(filter-out extension.js prefs.js,$(wildcard *.js))
+TOPLEVEL_JS := $(wildcard *.js)
+COMMON_JS := $(wildcard common/*.js)
 CMD_JS := $(wildcard cmds/*.js)
-JS_FILES := $(TOPLEVEL_JS) $(CMD_JS)
-EXTRA_SOURCES := $(TOPLEVEL_JS) README.md CHANGELOG.md cmds
+EXT_JS := $(wildcard ext/*.js)
+PREFS_JS := $(wildcard prefs/*.js)
+JS_FILES := $(TOPLEVEL_JS) $(COMMON_JS) $(CMD_JS) $(EXT_JS) $(PREFS_JS)
+EXTRA_SOURCES := README.md CHANGELOG.md common cmds ext prefs
 EXTRA_SOURCE_ARGS := $(foreach f,$(EXTRA_SOURCES),--extra-source=$(f))
 
-.PHONY: lint schemas version pack install ginstall enable disable reload clean
+.PHONY: lint test test-package test-versions fmt schemas version pack install ginstall enable disable reload clean
 
 lint:
-	biome lint $(JS_FILES)
+	biome lint $(JS_FILES) tests
+
+test: lint schemas
+	deno test --allow-read=. tests/config.test.js tests/geometry.test.js tests/metadata.test.js tests/optsize.test.js tests/resize.test.js
+	bash tests/run-gjs-tests.sh
+	$(MAKE) test-package
+
+test-package: pack
+	bash tests/package.test.sh
+
+test-versions:
+	bash tests/versions.test.sh
 
 fmt:
 	treefmt

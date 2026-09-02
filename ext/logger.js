@@ -1,15 +1,12 @@
-// logger.js
-
 export class Logger {
   constructor(settings, baseLogger) {
     this._settings = settings;
     this._logger = baseLogger;
-    this._verboseEnabled = settings?.get_boolean?.("verbose-logging") ?? false;
-
-    this._settings?.connectObject?.(
+    this._verboseEnabled = settings.get_boolean("verbose-logging");
+    settings.connectObject(
       "changed::verbose-logging",
       () => {
-        this._verboseEnabled = this._settings.get_boolean("verbose-logging");
+        this._verboseEnabled = settings.get_boolean("verbose-logging");
       },
       this,
     );
@@ -20,9 +17,7 @@ export class Logger {
   }
 
   verboseLog(...args) {
-    if (this._verboseEnabled) {
-      this._logger.log(...args);
-    }
+    if (this._verboseEnabled) this._logger.log(...args);
   }
 
   error(...args) {
@@ -30,6 +25,6 @@ export class Logger {
   }
 
   destroy() {
-    this._settings?.disconnectObject?.(this);
+    this._settings.disconnectObject(this);
   }
 }

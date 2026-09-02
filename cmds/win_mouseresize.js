@@ -5,7 +5,16 @@ import GLib from "gi://GLib";
 import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import {
+  DEFAULT_INDICATOR_BACKGROUND_COLOR,
+  DEFAULT_INDICATOR_BORDER_COLOR,
+  isSuperArrowBinding,
+  normalizeIndicatorBorderSize,
+  resolveIndicatorConfig,
+} from "../common/config.js";
+import {
+  acceleratorsEqual,
   connectObjectIfSignal,
+  connectWhenWindowRestored,
   getCursorTracker,
   getDisplay,
   getFocusedWindow,
@@ -13,18 +22,29 @@ import {
   getPointerData,
   normalizeWindow,
   setResizeCursor,
-} from "../compat.js";
-import { STATE_KEYS, STATE_MAP } from "../cmds.js";
-import { createConflictKeybindingIndex } from "../utils.js";
+} from "../ext/compat.js";
+import {
+  cloneRect,
+  computeResizeRect as computeResizeRectFromDelta,
+  flipLockedEdges,
+  getPointDelta,
+  hasLockedEdges,
+  lockResizeEdges,
+  MIN_RESIZE_SIZE,
+  preserveResizeAnchors,
+  rectEquals,
+} from "../common/window.js";
+import {
+  createConflictKeybindingIndex,
+  KeybindingOverrideLease,
+} from "../common/keybindings.js";
 
-const MIN_RESIZE_SIZE = 10;
 const KEYBOARD_RESIZE_STEP = 100;
-const DEFAULT_INDICATOR_BORDER = 3;
-const DEFAULT_INDICATOR_BORDER_COLOR = "rgba(230, 105, 105, 0.8)";
-const DEFAULT_INDICATOR_BACKGROUND_COLOR = "rgba(70, 70, 70, 0.2)";
+const STATE_KEY = "cmd-win-mouseresize";
+const CONFLICT_INDEX_KEY = "cmd-win-mouseresize-conflict-index";
 
-export function win_mouseresize(config, logger) {
-  const state = createState();
+export function win_mouseresize(stateMap, config, logger) {
+  const state = createState(stateMap);
   const win = getFocusedWindow();
   if (!win) {
     logger.verboseLog("win_mouseresize: no focused window");
@@ -32,13 +52,36 @@ export function win_mouseresize(config, logger) {
   }
   logger.verboseLog("win_mouseresize: enter resize mode");
 
-  normalizeWindow(win);
+  state.win = win;
+  state.winId = win.get_id();
+  if (normalizeWindow(win)) {
+    logger.verboseLog(
+      "win_mouseresize: waiting for restored window before resizing",
+    );
+    connectWhenWindowRestored(
+      win,
+      state,
+      () => {
+        if (stateMap.get(STATE_KEY) === state) {
+          beginMouseResize(state, config, logger);
+        }
+      },
+      () => end(state),
+    );
+    return;
+  }
+
+  beginMouseResize(state, config, logger);
+}
+
+function beginMouseResize(state, config, logger) {
+  const win = state.win;
 
   const exitResize = (reason) => {
     if (!state.active) {
       return;
     }
-    end();
+    end(state);
     logger.verboseLog(`win_mouseresize: exit resize mode (${reason})`);
   };
 
@@ -50,8 +93,6 @@ export function win_mouseresize(config, logger) {
   suppressSuperArrowBindings(state, logger);
 
   state.active = true;
-  state.win = win;
-  state.winId = win.get_id();
   const indicatorConfig = resolveIndicatorConfig(config);
   state.indicatorColors = indicatorConfig.colors;
   state.indicatorBorderSize = indicatorConfig.borderSize;
@@ -112,18 +153,17 @@ export function win_mouseresize(config, logger) {
   connectExitSignals(state, exitResize);
 }
 
-export function win_mouseresize_destroy() {
-  end();
+export function win_mouseresize_destroy(stateMap) {
+  end(stateMap.get(STATE_KEY));
 }
 
-function end(existingState) {
-  const state = existingState || STATE_MAP.get(STATE_KEYS.WIN_MOUSE_RESIZE);
+function end(state) {
   if (!state) {
     return;
   }
   restoreSuppressedBindings(state);
   releaseModalGrab(state);
-  setResizeCursor(false);
+  if (state.active) setResizeCursor(false);
   Main.overview?.disconnectObject?.(state);
   global.workspace_manager?.disconnectObject?.(state);
   getDisplay()?.disconnectObject?.(state);
@@ -149,13 +189,6 @@ function end(existingState) {
 function getPointerPoint() {
   const { x, y } = getPointerData();
   return { x, y };
-}
-
-function getPointDelta(fromPoint, toPoint) {
-  return {
-    x: toPoint.x - fromPoint.x,
-    y: toPoint.y - fromPoint.y,
-  };
 }
 
 function queueResizeRect(state, rect, point, mode) {
@@ -217,22 +250,11 @@ function getResizeAnchorRect(state) {
   return cloneRect(state.pendingResize?.rect) ?? cloneRect(state.currentRect);
 }
 
-function hasLockedEdges(edges) {
-  return Boolean(edges?.left || edges?.right || edges?.top || edges?.bottom);
-}
+function flipAndReanchor(state) {
+  const flipped = flipLockedEdges(state.edges);
+  if (!flipped) return false;
 
-function flipLockedEdges(state) {
-  if (!hasLockedEdges(state.edges)) {
-    return false;
-  }
-
-  state.edges = {
-    left: Boolean(state.edges.right),
-    right: Boolean(state.edges.left),
-    top: Boolean(state.edges.bottom),
-    bottom: Boolean(state.edges.top),
-  };
-
+  state.edges = flipped;
   reanchorMouseResize(state, getResizeAnchorRect(state), getPointerPoint());
   return true;
 }
@@ -242,7 +264,7 @@ function handleShiftPress(state) {
     return false;
   }
   state.shiftPressed = true;
-  return flipLockedEdges(state);
+  return flipAndReanchor(state);
 }
 
 function syncShiftKeyState(state) {
@@ -254,51 +276,16 @@ function syncShiftKeyState(state) {
 }
 
 function enforceLastRequestedAnchors(state, actualRect) {
-  const requestedRect = state.lastResizeRect;
-  if (!actualRect || !requestedRect || !state.edges) {
-    return actualRect;
-  }
-
-  let x = actualRect.x;
-  let y = actualRect.y;
-  if (state.edges.right) {
-    x = requestedRect.x;
-  } else if (state.edges.left) {
-    x = requestedRect.x + requestedRect.width - actualRect.width;
-  }
-  if (state.edges.bottom) {
-    y = requestedRect.y;
-  } else if (state.edges.top) {
-    y = requestedRect.y + requestedRect.height - actualRect.height;
-  }
-
-  if (x === actualRect.x && y === actualRect.y) {
-    return actualRect;
-  }
-
-  const anchoredRect = {
-    x,
-    y,
-    width: actualRect.width,
-    height: actualRect.height,
-  };
-  applyResizeRect(state.win, anchoredRect);
-  return anchoredRect;
+  const anchored = preserveResizeAnchors(
+    actualRect,
+    state.lastResizeRect,
+    state.edges,
+  );
+  if (!rectEquals(anchored, actualRect)) applyResizeRect(state.win, anchored);
+  return anchored;
 }
 
 // Window helpers
-
-function cloneRect(rect) {
-  if (!rect) {
-    return null;
-  }
-  return {
-    x: rect.x,
-    y: rect.y,
-    width: rect.width,
-    height: rect.height,
-  };
-}
 
 function getWindowMinSize(win) {
   let minWidth = MIN_RESIZE_SIZE;
@@ -329,91 +316,17 @@ function ensureLockedEdgesForDelta(state, delta, point, rect) {
 }
 
 function lockEdges(state, delta, point, rect) {
-  if (!state.edges) {
-    state.edges = { left: false, right: false, top: false, bottom: false };
-  }
-  const dx = delta.x;
-  const dy = delta.y;
-  if (!state.edges.left && !state.edges.right && dx !== 0) {
-    const leftEdge = rect.x;
-    const rightEdge = rect.x + rect.width;
-    const distLeft = Math.abs(point.x - leftEdge);
-    const distRight = Math.abs(point.x - rightEdge);
-    const nearestIsRight = distRight < distLeft;
-    if (dx < 0) {
-      state.edges.right = nearestIsRight;
-      state.edges.left = !nearestIsRight;
-    } else if (dx > 0) {
-      state.edges.left = distLeft < distRight;
-      state.edges.right = !state.edges.left;
-    }
-  }
-  if (!state.edges.top && !state.edges.bottom && dy !== 0) {
-    const topEdge = rect.y;
-    const bottomEdge = rect.y + rect.height;
-    const distTop = Math.abs(point.y - topEdge);
-    const distBottom = Math.abs(point.y - bottomEdge);
-    const nearestIsBottom = distBottom < distTop;
-    if (dy < 0) {
-      state.edges.bottom = nearestIsBottom;
-      state.edges.top = !nearestIsBottom;
-    } else if (dy > 0) {
-      state.edges.top = distTop < distBottom;
-      state.edges.bottom = !state.edges.top;
-    }
-  }
-  return (
-    state.edges.left ||
-    state.edges.right ||
-    state.edges.top ||
-    state.edges.bottom
-  );
+  state.edges = lockResizeEdges(state.edges, delta, point, rect);
+  return hasLockedEdges(state.edges);
 }
 
 function computeResizeRect(rect, edges, startPoint, pointer, minSize) {
-  if (!edges || (!edges.left && !edges.right && !edges.top && !edges.bottom)) {
-    return null;
-  }
   return computeResizeRectFromDelta(
     rect,
     edges,
     getPointDelta(startPoint, pointer),
     minSize,
   );
-}
-
-function computeResizeRectFromDelta(rect, edges, delta, minSize) {
-  if (!edges || (!edges.left && !edges.right && !edges.top && !edges.bottom)) {
-    return null;
-  }
-  const dx = delta.x;
-  const dy = delta.y;
-  const minWidth = minSize?.width ?? MIN_RESIZE_SIZE;
-  const minHeight = minSize?.height ?? MIN_RESIZE_SIZE;
-
-  let left = rect.x;
-  let right = rect.x + rect.width;
-  let top = rect.y;
-  let bottom = rect.y + rect.height;
-
-  if (edges.left) {
-    left = Math.min(rect.x + dx, right - minWidth);
-  } else if (edges.right) {
-    right = Math.max(rect.x + rect.width + dx, left + minWidth);
-  }
-
-  if (edges.top) {
-    top = Math.min(rect.y + dy, bottom - minHeight);
-  } else if (edges.bottom) {
-    bottom = Math.max(rect.y + rect.height + dy, top + minHeight);
-  }
-
-  return {
-    x: left,
-    y: top,
-    width: right - left,
-    height: bottom - top,
-  };
 }
 
 function applyResizeRect(win, rect) {
@@ -556,74 +469,27 @@ function releaseModalGrab(state) {
 }
 
 function suppressSuperArrowBindings(state, logger) {
-  state.suppressedBindings ??= new Map();
-  if (state.suppressedBindings.size > 0) {
+  if (state.bindingOverrides) {
     return;
   }
 
-  const { settings, keyNamesBySchema } = getConflictKeybindingIndex();
-  for (const conflictSettings of settings) {
-    const schema = conflictSettings.schema_id;
-    const keys = keyNamesBySchema.get(schema) ?? [];
-    for (const key of keys) {
-      const bindings = conflictSettings.get_strv(key);
-      if (!Array.isArray(bindings) || bindings.length === 0) {
-        continue;
-      }
-
-      const filtered = bindings.filter((binding) =>
-        !isSuperArrowBinding(binding)
-      );
-      if (filtered.length === bindings.length) {
-        continue;
-      }
-
-      rememberSuppressedBinding(state, schema, key, bindings);
-      conflictSettings.set_strv(key, filtered);
-      logger.verboseLog(
-        `win_mouseresize: suppressed ${schema}::${key} (${
-          bindings.join(", ")
-        })`,
-      );
-    }
+  state.bindingOverrides = new KeybindingOverrideLease(
+    getConflictKeybindingIndex(state.stateMap),
+    acceleratorsEqual,
+  );
+  const changes = state.bindingOverrides.suppressMatching(isSuperArrowBinding);
+  for (const { schemaId, key, bindings } of changes) {
+    logger.verboseLog(
+      `win_mouseresize: suppressed ${schemaId}::${key} (${
+        bindings.join(", ")
+      })`,
+    );
   }
 }
 
 function restoreSuppressedBindings(state) {
-  const { settingsBySchema } = getConflictKeybindingIndex();
-  for (const [schema, keys] of state.suppressedBindings ?? []) {
-    const settings = settingsBySchema.get(schema);
-    if (!settings) {
-      continue;
-    }
-    for (const [key, bindings] of keys) {
-      settings.set_strv(key, bindings);
-    }
-  }
-  state.suppressedBindings?.clear();
-}
-
-function rememberSuppressedBinding(state, schema, key, bindings) {
-  if (!state.suppressedBindings.has(schema)) {
-    state.suppressedBindings.set(schema, new Map());
-  }
-  const schemaBindings = state.suppressedBindings.get(schema);
-  if (!schemaBindings.has(key)) {
-    schemaBindings.set(key, bindings);
-  }
-}
-
-function isSuperArrowBinding(binding) {
-  if (typeof binding !== "string") {
-    return false;
-  }
-  if (!binding.includes("<Super>")) {
-    return false;
-  }
-
-  return /(?:^|>)(Left|Right|Up|Down|KP_Left|KP_Right|KP_Up|KP_Down)$/.test(
-    binding,
-  );
+  state.bindingOverrides?.restore();
+  state.bindingOverrides = null;
 }
 
 // Indicator helpers
@@ -663,28 +529,29 @@ function updateResizeIndicator(state, rect) {
 
 // State helpers
 
-function createState() {
-  let state = STATE_MAP.get(STATE_KEYS.WIN_MOUSE_RESIZE);
-  if (state?.active) {
+function createState(stateMap) {
+  let state = stateMap.get(STATE_KEY);
+  if (state) {
     end(state);
   }
-  state = _newState();
-  STATE_MAP.set(STATE_KEYS.WIN_MOUSE_RESIZE, state);
+  state = _newState(stateMap);
+  stateMap.set(STATE_KEY, state);
   return state;
 }
 
-function _newState() {
+function _newState(stateMap) {
   return {
+    stateMap,
     active: false,
     cursorTracker: null,
     modalActor: null,
     modalGrab: null,
-    suppressedBindings: new Map(),
+    bindingOverrides: null,
     win: null,
     winId: null,
     indicator: null,
     indicatorColors: null,
-    indicatorBorderSize: DEFAULT_INDICATOR_BORDER,
+    indicatorBorderSize: normalizeIndicatorBorderSize(),
     edges: null,
     startRect: null,
     startPoint: null,
@@ -700,63 +567,20 @@ function _newState() {
 }
 
 function resetState(state) {
-  Object.assign(state, _newState());
+  Object.assign(state, _newState(state.stateMap));
 }
 
-function getConflictKeybindingIndex() {
-  let index = STATE_MAP.get(STATE_KEYS.WIN_MOUSE_RESIZE_CONFLICT_INDEX);
+function getConflictKeybindingIndex(stateMap) {
+  let index = stateMap.get(CONFLICT_INDEX_KEY);
   if (!index) {
     index = createConflictKeybindingIndex();
-    STATE_MAP.set(STATE_KEYS.WIN_MOUSE_RESIZE_CONFLICT_INDEX, index);
+    stateMap.set(CONFLICT_INDEX_KEY, index);
   }
   return index;
 }
 
-function normalizeIndicatorColor(value, fallback) {
-  if (typeof value !== "string") {
-    return fallback;
-  }
-  const trimmed = value.trim();
-  return isSafeIndicatorColor(trimmed) ? trimmed : fallback;
-}
-
-function isSafeIndicatorColor(value) {
-  if (!value || /[;{}]/.test(value)) {
-    return false;
-  }
-  return /^(#[0-9a-fA-F]{3,8}|(?:rgba?|hsla?)\([\d\s.,%+-]+\)|[a-zA-Z][a-zA-Z0-9-]*)$/
-    .test(
-      value,
-    );
-}
-
-function normalizeIndicatorBorderSize(value) {
-  if (!Number.isFinite(value)) {
-    return DEFAULT_INDICATOR_BORDER;
-  }
-  const rounded = Math.round(value);
-  return rounded > 0 ? rounded : DEFAULT_INDICATOR_BORDER;
-}
-
 function getIndicatorBorderSize(state) {
   return normalizeIndicatorBorderSize(state?.indicatorBorderSize);
-}
-
-function resolveIndicatorConfig(config) {
-  const values = config?.winMouseResize ?? {};
-  return {
-    colors: {
-      borderColor: normalizeIndicatorColor(
-        values.borderColor,
-        DEFAULT_INDICATOR_BORDER_COLOR,
-      ),
-      backgroundColor: normalizeIndicatorColor(
-        values.backgroundColor,
-        DEFAULT_INDICATOR_BACKGROUND_COLOR,
-      ),
-    },
-    borderSize: normalizeIndicatorBorderSize(values.borderSize),
-  };
 }
 
 // Signal helpers

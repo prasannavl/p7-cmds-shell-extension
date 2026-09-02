@@ -3,6 +3,7 @@
 import Clutter from "gi://Clutter";
 import GObject from "gi://GObject";
 import Meta from "gi://Meta";
+import { acceleratorsEqual as compareAccelerators } from "../common/config.js";
 
 export const MaximizeFlags = Meta.MaximizeFlags;
 
@@ -13,6 +14,12 @@ export function getDisplay() {
 export function getFocusedWindow() {
   const display = getDisplay();
   return display.get_focus_window();
+}
+
+export function getWindowMonitor(win) {
+  const monitor = win.get_monitor();
+  const monitorCount = getDisplay().get_n_monitors();
+  return monitor >= 0 && monitor < monitorCount ? monitor : null;
 }
 
 export function resolveTopLevelWindow(win) {
@@ -76,6 +83,48 @@ export function normalizeWindow(win) {
     changed = true;
   }
   return changed;
+}
+
+export function isWindowRestored(win) {
+  return !isWindowFullscreen(win) && !getMaximizeState(win).any;
+}
+
+export function connectWhenWindowRestored(
+  win,
+  owner,
+  onRestored,
+  onUnmanaged,
+) {
+  let finished = false;
+  const finish = (callback) => {
+    if (finished) return;
+    finished = true;
+    win.disconnectObject?.(owner);
+    callback?.();
+  };
+  const applyIfReady = () => {
+    if (isWindowRestored(win)) finish(onRestored);
+  };
+
+  win.connectObject(
+    "size-changed",
+    applyIfReady,
+    "position-changed",
+    applyIfReady,
+    "unmanaged",
+    () => finish(onUnmanaged),
+    owner,
+  );
+  for (
+    const signal of [
+      "notify::fullscreen",
+      "notify::maximized-horizontally",
+      "notify::maximized-vertically",
+    ]
+  ) {
+    connectObjectIfSignal(win, signal, applyIfReady, owner);
+  }
+  applyIfReady();
 }
 
 export function getCursorTracker() {
@@ -219,4 +268,18 @@ export function getPointerData() {
 
   const [x, y, modifiers] = global.get_pointer();
   return { x, y, modifiers };
+}
+
+export function normalizeAcceleratorKey(key) {
+  let keyval = Clutter[`KEY_${key}`];
+  if (keyval === undefined && key.startsWith("XF86")) {
+    keyval = Clutter[`KEY_${key.slice(4)}`];
+  }
+  return keyval === undefined || keyval === Clutter.KEY_VoidSymbol
+    ? null
+    : String(keyval);
+}
+
+export function acceleratorsEqual(left, right) {
+  return compareAccelerators(left, right, normalizeAcceleratorKey);
 }

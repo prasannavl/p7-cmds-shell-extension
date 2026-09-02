@@ -3,8 +3,7 @@
 Sensible keyboard shortcuts with a small set of Mutter-aware commands to make
 the GNOME shell experience more intuitive for power users.
 
-- Compatibility: GNOME Shell 49+.
-- Best effort compatibility: GNOME Shell 45+.
+- Compatibility: GNOME Shell 45 through 50.
 - Extension Store: https://extensions.gnome.org/extension/9065/p7-commands/
 - Project is also a Nix flake for direct install on NixOS.
 
@@ -105,9 +104,9 @@ Notes:
 
 - `scales` applies when no breakpoint matches.
 - Each scale is `[width, height]`.
-- Values from `0` to `1` are treated as fractions of the current work area.
+- Values greater than `0` and up to `1` are fractions of the current work area.
 - Values greater than `1` are treated as exact pixel sizes.
-- Exact pixel sizes larger than the current monitor axis fall back to `0.85` of
+- Exact pixel sizes larger than the current monitor axis fall back to `0.95` of
   that axis.
 - Use `null` for auto sizing based on the monitor aspect ratio.
 - Optional `aspectBasedInversion: true` will swap width/height scales on
@@ -131,6 +130,8 @@ Common tasks (see `Makefile`):
 Useful Make targets:
 
 - `make lint` - run linters
+- `make test` - run behavioral, GSettings, module-load, and package tests
+- `make test-versions` - run integration tests on GNOME Shell 45 through 50
 - `make fmt` - run formatters
 - `make schemas` - compile GSettings schema
 - `make pack` - build zip into `dist/`

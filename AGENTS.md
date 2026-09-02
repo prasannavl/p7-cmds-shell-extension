@@ -1,18 +1,21 @@
 # GNOME Extension that adds some sensible commands that can be activated with key mappings
 
-- We have a bunch of commands that are defined under cmds/, where each exported
-  function can be a command that can be executed with access to the Mutter API.
-- We call them by connecting them to a key binding.
-- Keybindings are managed in keybindmanager.js.
+- Commands live under `cmds/`, where each exported function can use the Mutter
+  API. `cmds/index.js` creates the per-extension command registry and injects
+  its private state map into command handlers.
+- Commands are invoked through keybindings managed by
+  `ext/keybindingmanager.js`.
 - The keybinding manager, on enabling, ensures that any conflicting keybinds
   already set for the ones we want are removed while logging it.
 - The keybind manager, on disabling, ensures that all keybinds we replaced are
   restored.
-- config.js is where the config store through GSettings is managed. We manage
-  the full config as a single object, which is loaded on enabling and then
-  reloaded as a whole on GSettings change notification. We also instruct the
-  downstream classes that use ConfigManager to propagate the change notification
-  so they can reload themselves.
+- `common/config.js` contains the GI-independent configuration definitions,
+  validation, and `ConfigManager`. We manage the full GSettings configuration as
+  a single object, load it on enabling, and reload it as a whole on change.
+- `common/keybindings.js` contains shared GSettings conflict/lease logic.
+- `common/window.js` contains pure window geometry algorithms.
+- `ext/` contains Shell-only integration such as compatibility, logging, and
+  keybinding management. `prefs/` contains preferences-only UI code.
 
 Commands:
 
@@ -23,7 +26,7 @@ Commands:
 
 Compatibility:
 
-- GNOME 48, 49 in particular.
+- GNOME 45 through 50, with GNOME 48 and 49 in particular.
 
 Programming styles:
 
@@ -36,7 +39,8 @@ Programming styles:
 #### General
 
 - Use `nix develop` to get a shell with all the tools needed to work.
-- Absolutely no global state. Use the existing STATE_MAP where necessary.
+- Absolutely no global mutable state. Command state belongs to the registry
+  created by `cmds/index.js` and is passed explicitly to command handlers.
 
 #### Update version
 

@@ -2,22 +2,23 @@
 
 import GLib from "gi://GLib";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
-import { DEFAULT_WIN_OPTSIZE_CONFIG } from "../common.js";
-import { normalizeWinOptsizeConfig } from "../utils.js";
 import {
-  connectObjectIfSignal,
+  DEFAULT_WIN_OPTSIZE_CONFIG,
+  normalizeWinOptsizeConfig,
+} from "../common/config.js";
+import { cloneRect, getNextOptsize, rectEquals } from "../common/window.js";
+import {
+  connectWhenWindowRestored,
   getFocusedWindow,
-  getMaximizeState,
-  isWindowFullscreen,
+  getWindowMonitor,
   normalizeWindow,
   resolveTopLevelWindow,
-} from "../compat.js";
-import { STATE_KEYS, STATE_MAP } from "../cmds.js";
+} from "../ext/compat.js";
 
-const OVERSIZED_EXACT_SCALE_FALLBACK = 0.95;
+const STATE_KEY = "cmd-win-optsize";
 
-export function win_optsize(config, logger) {
-  const focusedWindow = getFocusedWindow?.() ?? global.display.focus_window;
+export function win_optsize(stateMap, config, logger) {
+  const focusedWindow = getFocusedWindow();
   const win = resolveTopLevelWindow(focusedWindow);
   if (!win) {
     return;
@@ -29,7 +30,7 @@ export function win_optsize(config, logger) {
     );
   }
 
-  const cycleState = getWinOptsizeState(win);
+  const cycleState = getWinOptsizeState(stateMap, win);
   cancelPendingWinOptsize(win, cycleState);
   cancelPendingWinOptsizeSync(cycleState);
 
@@ -42,16 +43,20 @@ export function win_optsize(config, logger) {
     logger?.verboseLog?.(
       "win_optsize: waiting for restored window before applying optsize",
     );
-    queuePendingWinOptsize(win, config, logger, cycleState);
+    queuePendingWinOptsize(stateMap, win, config, logger, cycleState);
     return;
   }
 
   applyWinOptsize(win, config, cycleState);
 }
 
-function getWinOptsizeState(win) {
+function getWinOptsizeState(stateMap, win) {
   const winId = win.get_id();
-  let cycleState = STATE_MAP.get(STATE_KEYS.WIN_OPTSIZE);
+  let cycleState = stateMap.get(STATE_KEY);
+  if (cycleState && cycleState.winId !== winId) {
+    cancelPendingWinOptsize(cycleState.win, cycleState);
+    cancelPendingWinOptsizeSync(cycleState);
+  }
   if (!cycleState || cycleState.winId !== winId) {
     cycleState = {
       win,
@@ -62,13 +67,13 @@ function getWinOptsizeState(win) {
       pending: null,
       syncSourceId: 0,
     };
-    STATE_MAP.set(STATE_KEYS.WIN_OPTSIZE, cycleState);
+    stateMap.set(STATE_KEY, cycleState);
   }
   return cycleState;
 }
 
-export function win_optsize_destroy() {
-  const cycleState = STATE_MAP.get(STATE_KEYS.WIN_OPTSIZE);
+export function win_optsize_destroy(stateMap) {
+  const cycleState = stateMap.get(STATE_KEY);
   if (!cycleState?.win) {
     return;
   }
@@ -76,44 +81,31 @@ export function win_optsize_destroy() {
   cancelPendingWinOptsizeSync(cycleState);
 }
 
-function queuePendingWinOptsize(win, config, logger, cycleState) {
+function queuePendingWinOptsize(
+  stateMap,
+  win,
+  config,
+  logger,
+  cycleState,
+) {
   const pending = {};
-  const applyIfReady = () => {
-    if (cycleState.pending !== pending || !isRestoredWindow(win)) {
-      return;
-    }
-    cancelPendingWinOptsize(win, cycleState, pending);
-    logger?.verboseLog?.("win_optsize: applying optsize after restore");
-    applyWinOptsize(win, config, cycleState);
-  };
-
   cycleState.pending = pending;
-  win.connectObject("size-changed", applyIfReady, pending);
-  win.connectObject("position-changed", applyIfReady, pending);
-  connectObjectIfSignal(
+  connectWhenWindowRestored(
     win,
-    "notify::fullscreen",
-    applyIfReady,
     pending,
+    () => {
+      if (
+        cycleState.pending !== pending ||
+        stateMap.get(STATE_KEY) !== cycleState
+      ) return;
+      cycleState.pending = null;
+      logger?.verboseLog?.("win_optsize: applying optsize after restore");
+      applyWinOptsize(win, config, cycleState);
+    },
+    () => {
+      if (cycleState.pending === pending) cycleState.pending = null;
+    },
   );
-  connectObjectIfSignal(
-    win,
-    "notify::maximized-horizontally",
-    applyIfReady,
-    pending,
-  );
-  connectObjectIfSignal(
-    win,
-    "notify::maximized-vertically",
-    applyIfReady,
-    pending,
-  );
-  win.connectObject(
-    "unmanaged",
-    () => cancelPendingWinOptsize(win, cycleState, pending),
-    pending,
-  );
-  applyIfReady();
 }
 
 function cancelPendingWinOptsize(
@@ -138,10 +130,6 @@ function cancelPendingWinOptsizeSync(cycleState) {
   cycleState.syncSourceId = 0;
 }
 
-function isRestoredWindow(win) {
-  return !isWindowFullscreen(win) && !getMaximizeState(win).any;
-}
-
 function maybeResetWinOptsizeCycle(win, cycleState, logger) {
   const currentRect = cloneRect(win.get_frame_rect());
   if (!rectEquals(currentRect, cycleState.lastAppliedRect)) {
@@ -160,113 +148,34 @@ function maybeResetWinOptsizeCycle(win, cycleState, logger) {
 }
 
 function applyWinOptsize(win, config, cycleState) {
-  const monitor = win.get_monitor();
+  const monitor = getWindowMonitor(win);
+  if (monitor === null) return;
   const workArea = Main.layoutManager.getWorkAreaForMonitor(monitor);
+  if (!workArea) return;
   const normalizedWinConfig = normalizeWinOptsizeConfig(config?.winOptsize);
   const winConfig = normalizedWinConfig.value ?? DEFAULT_WIN_OPTSIZE_CONFIG;
-  const scales = resolveWinOptsizeScales(winConfig, workArea);
 
   if (!cycleState.originalRect) {
     cycleState.originalRect = cloneRect(win.get_frame_rect());
   }
 
-  const cycleLength = scales.length + 1;
-  const nextIndex = (cycleState.index + 1) % cycleLength;
-  cycleState.index = nextIndex;
-  STATE_MAP.set(STATE_KEYS.WIN_OPTSIZE, cycleState);
-
-  let targetWidth;
-  let targetHeight;
-  let targetX;
-  let targetY;
-  if (nextIndex === scales.length) {
-    const original = cycleState.originalRect;
-    targetWidth = Math.round(original.width);
-    targetHeight = Math.round(original.height);
-    targetX = Math.round(original.x);
-    targetY = Math.round(original.y);
-  } else {
-    let [widthScale, heightScale] = scales[nextIndex];
-    const w = workArea.width;
-    const h = workArea.height;
-    // Aspect-based inversion logic
-    if (winConfig.aspectBasedInversion && h > w) {
-      // Invert width/height for portrait screens
-      [widthScale, heightScale] = [heightScale, widthScale];
-    }
-
-    const aspect = w / h;
-    targetWidth = resolveScaleSize(widthScale, w);
-    targetHeight = resolveScaleSize(heightScale, h, targetWidth, aspect);
-    targetX = Math.round(workArea.x + (workArea.width - targetWidth) / 2);
-    targetY = Math.round(workArea.y + (workArea.height - targetHeight) / 2);
-  }
-
-  const targetRect = clampRectToWorkArea(
-    { x: targetX, y: targetY, width: targetWidth, height: targetHeight },
+  const next = getNextOptsize(
+    winConfig,
     workArea,
+    cycleState.originalRect,
+    cycleState.index,
   );
-
-  cycleState.lastAppliedRect = cloneRect(targetRect);
+  cycleState.index = next.index;
+  cycleState.lastAppliedRect = cloneRect(next.rect);
 
   win.move_resize_frame(
     true,
-    targetRect.x,
-    targetRect.y,
-    targetRect.width,
-    targetRect.height,
+    next.rect.x,
+    next.rect.y,
+    next.rect.width,
+    next.rect.height,
   );
-  queueWinOptsizeSync(win, targetRect, cycleState);
-}
-
-function cloneRect(rect) {
-  if (!rect) {
-    return null;
-  }
-  return {
-    x: Math.round(rect.x),
-    y: Math.round(rect.y),
-    width: Math.round(rect.width),
-    height: Math.round(rect.height),
-  };
-}
-
-function rectEquals(left, right) {
-  if (!left || !right) {
-    return left === right;
-  }
-  return left.x === right.x &&
-    left.y === right.y &&
-    left.width === right.width &&
-    left.height === right.height;
-}
-
-function clampRectToWorkArea(rect, workArea) {
-  const width = Math.max(1, Math.min(Math.round(rect.width), workArea.width));
-  const height = Math.max(
-    1,
-    Math.min(Math.round(rect.height), workArea.height),
-  );
-  const minX = workArea.x;
-  const minY = workArea.y;
-  const maxX = workArea.x + workArea.width - width;
-  const maxY = workArea.y + workArea.height - height;
-  return {
-    x: clamp(Math.round(rect.x), minX, maxX),
-    y: clamp(Math.round(rect.y), minY, maxY),
-    width,
-    height,
-  };
-}
-
-function clamp(value, min, max) {
-  if (value < min) {
-    return min;
-  }
-  if (value > max) {
-    return max;
-  }
-  return value;
+  queueWinOptsizeSync(win, next.rect, cycleState);
 }
 
 function queueWinOptsizeSync(win, rect, cycleState) {
@@ -291,46 +200,4 @@ function queueWinOptsizeSync(win, rect, cycleState) {
 
     return GLib.SOURCE_REMOVE;
   });
-}
-
-function resolveWinOptsizeScales(winConfig, workArea) {
-  let scales = winConfig.scales ?? DEFAULT_WIN_OPTSIZE_CONFIG.scales;
-  if (Array.isArray(winConfig.breakpoints)) {
-    for (const breakpoint of winConfig.breakpoints) {
-      if (!breakpoint || typeof breakpoint.maxWidth !== "number") {
-        continue;
-      }
-      if (
-        workArea.width <= breakpoint.maxWidth &&
-        (typeof breakpoint.maxHeight !== "number" ||
-          workArea.height <= breakpoint.maxHeight)
-      ) {
-        if (Array.isArray(breakpoint.scales) && breakpoint.scales.length > 0) {
-          scales = breakpoint.scales;
-        }
-        break;
-      }
-    }
-  }
-  if (!Array.isArray(scales) || scales.length === 0) {
-    scales = DEFAULT_WIN_OPTSIZE_CONFIG.scales;
-  }
-
-  return scales;
-}
-
-function resolveScaleSize(scale, axisSize, targetWidth, aspect) {
-  if (scale === null && targetWidth != null) {
-    return Math.round(targetWidth / aspect);
-  }
-  if (typeof scale !== "number" || !Number.isFinite(scale)) {
-    return Math.round(axisSize * OVERSIZED_EXACT_SCALE_FALLBACK);
-  }
-  if (scale <= 1) {
-    return Math.round(axisSize * scale);
-  }
-  if (scale > axisSize) {
-    return Math.round(axisSize * OVERSIZED_EXACT_SCALE_FALLBACK);
-  }
-  return Math.round(scale);
 }

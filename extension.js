@@ -1,38 +1,29 @@
-// extension.js
-
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
-import { KeyBindManager } from "./keybindmanager.js";
-import { COMMANDS, destroyCommands, STATE_MAP } from "./cmds.js";
-import { Logger } from "./logger.js";
+import { createCommands } from "./cmds/index.js";
+import { KeybindingManager } from "./ext/keybindingmanager.js";
+import { Logger } from "./ext/logger.js";
 
 export default class P7ShortcutsExtension extends Extension {
-  constructor(metadata) {
-    super(metadata);
-
-    this._logger = null;
-    this.keyBindManager = null;
-  }
-
   enable() {
     const settings = this.getSettings();
-    // For compatibility with gnome 45, we fall back to console
-    const baseLogger = this.getLogger?.() || console;
-    this._logger = new Logger(settings, baseLogger);
+    this._logger = new Logger(settings, this.getLogger?.() || console);
     this._logger.log("Extension enabled");
-
-    this.keyBindManager = new KeyBindManager(settings, this._logger, COMMANDS);
-    this.keyBindManager.enable();
+    this._commands = createCommands();
+    this._keybindingManager = new KeybindingManager(
+      settings,
+      this._logger,
+      this._commands.list,
+    );
+    this._keybindingManager.enable();
   }
 
   disable() {
-    this._logger.log("Extension disabled");
-    this._logger?.destroy?.();
-    if (this.keyBindManager) {
-      this.keyBindManager.disable();
-      this.keyBindManager = null;
-    }
-    destroyCommands();
-    STATE_MAP.clear();
+    this._logger?.log("Extension disabled");
+    this._keybindingManager?.disable();
+    this._keybindingManager = null;
+    this._commands?.destroy();
+    this._commands = null;
+    this._logger?.destroy();
     this._logger = null;
   }
 }
