@@ -2,6 +2,22 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [35] - 2026-09-01
+
+- Add comprehensive behavioral, GSettings, command lifecycle, package, and GNOME
+  Shell 45 through 50 compatibility tests.
+- Preserve unrelated and concurrently edited system shortcuts while overriding
+  conflicts, with safe rollback when registration fails.
+- Wait for restored window geometry before resizing and guard stale monitor
+  indices during display changes.
+- Validate accelerators and optimal-size configuration before applying them.
+- Simplify shared configuration, geometry, compatibility, and preferences code.
+
+## [34] - 2026-06-16
+
+- Add GNOME Shell 50 support.
+- Use the GNOME 50 cursor API while preserving older Shell compatibility.
+
 ## [33] - 2026-04-17
 
 - Add additional Shift modifer to cycle locked edges for mouse resize
