@@ -4,7 +4,7 @@
   API. `cmds/index.js` creates the per-extension command registry and injects
   its private state map into command handlers.
 - Commands are invoked through keybindings managed by
-  `ext/keybindingmanager.js`.
+  `shell/keybindingmanager.js`.
 - The keybinding manager, on enabling, ensures that any conflicting keybinds
   already set for the ones we want are removed while logging it.
 - The keybind manager, on disabling, ensures that all keybinds we replaced are
@@ -14,7 +14,7 @@
   a single object, load it on enabling, and reload it as a whole on change.
 - `common/keybindings.js` contains shared GSettings conflict/lease logic.
 - `common/window.js` contains pure window geometry algorithms.
-- `ext/` contains Shell-only integration such as compatibility, logging, and
+- `shell/` contains Shell-only integration such as compatibility, logging, and
   keybinding management. `prefs/` contains preferences-only UI code.
 
 Commands:
@@ -26,7 +26,8 @@ Commands:
 
 Compatibility:
 
-- GNOME 45 through 50, with GNOME 48 and 49 in particular.
+- Tier 1: GNOME 50 (actively tested).
+- Tier 2: GNOME 45+ (works, best effort).
 
 Programming styles:
 

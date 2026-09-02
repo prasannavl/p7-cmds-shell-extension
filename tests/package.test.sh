@@ -13,10 +13,10 @@ expected_files=$(printf '%s\n' \
   common/keybindings.js \
   common/window.js \
   extension.js \
-  ext/ \
-  ext/compat.js \
-  ext/keybindingmanager.js \
-  ext/logger.js \
+  shell/ \
+  shell/compat.js \
+  shell/keybindingmanager.js \
+  shell/logger.js \
   metadata.json \
   prefs/ \
   prefs/ui.js \

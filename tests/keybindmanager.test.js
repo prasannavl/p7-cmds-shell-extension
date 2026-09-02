@@ -1,7 +1,7 @@
 import Gio from "gi://Gio";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
 import { CONFIG_REVISION } from "../common/config.js";
-import { KeybindingManager } from "../ext/keybindingmanager.js";
+import { KeybindingManager } from "../shell/keybindingmanager.js";
 import { assertEquals } from "./testlib.js";
 
 if (!Gio.Settings.prototype.connectObject) {

@@ -6,7 +6,7 @@ import {
   ConfigManager,
   DEFAULT_WIN_OPTSIZE_CONFIG,
 } from "../common/config.js";
-import { normalizeAcceleratorKey } from "../ext/compat.js";
+import { normalizeAcceleratorKey } from "../shell/compat.js";
 import { assertEquals } from "./testlib.js";
 
 if (!Gio.Settings.prototype.connectObject) {

@@ -7,7 +7,7 @@ import {
   normalizeAcceleratorKey,
   normalizeWindow,
   resolveTopLevelWindow,
-} from "../ext/compat.js";
+} from "../shell/compat.js";
 import { assertEquals } from "./testlib.js";
 
 let passed = 0;

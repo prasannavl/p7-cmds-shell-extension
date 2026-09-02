@@ -4,10 +4,10 @@ SCHEMAS_DIR := schemas
 TOPLEVEL_JS := $(wildcard *.js)
 COMMON_JS := $(wildcard common/*.js)
 CMD_JS := $(wildcard cmds/*.js)
-EXT_JS := $(wildcard ext/*.js)
+SHELL_JS := $(wildcard shell/*.js)
 PREFS_JS := $(wildcard prefs/*.js)
-JS_FILES := $(TOPLEVEL_JS) $(COMMON_JS) $(CMD_JS) $(EXT_JS) $(PREFS_JS)
-EXTRA_SOURCES := README.md CHANGELOG.md common cmds ext prefs
+JS_FILES := $(TOPLEVEL_JS) $(COMMON_JS) $(CMD_JS) $(SHELL_JS) $(PREFS_JS)
+EXTRA_SOURCES := README.md CHANGELOG.md common cmds shell prefs
 EXTRA_SOURCE_ARGS := $(foreach f,$(EXTRA_SOURCES),--extra-source=$(f))
 
 .PHONY: lint test test-package test-versions fmt schemas version pack install ginstall enable disable reload clean

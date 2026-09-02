@@ -13,7 +13,7 @@ import {
   getWindowMonitor,
   normalizeWindow,
   resolveTopLevelWindow,
-} from "../ext/compat.js";
+} from "../shell/compat.js";
 
 const STATE_KEY = "cmd-win-optsize";
 

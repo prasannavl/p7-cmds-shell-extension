@@ -22,7 +22,7 @@ import {
   getPointerData,
   normalizeWindow,
   setResizeCursor,
-} from "../ext/compat.js";
+} from "../shell/compat.js";
 import {
   cloneRect,
   computeResizeRect as computeResizeRectFromDelta,

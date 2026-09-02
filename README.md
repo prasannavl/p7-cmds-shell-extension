@@ -3,7 +3,8 @@
 Sensible keyboard shortcuts with a small set of Mutter-aware commands to make
 the GNOME shell experience more intuitive for power users.
 
-- Compatibility: GNOME Shell 45 through 50.
+- Tier 1: GNOME Shell 50 (actively tested).
+- Tier 2: GNOME Shell 45+ (works, best effort).
 - Extension Store: https://extensions.gnome.org/extension/9065/p7-commands/
 - Project is also a Nix flake for direct install on NixOS.
 

@@ -1,7 +1,7 @@
 import { Extension } from "resource:///org/gnome/shell/extensions/extension.js";
 import { createCommands } from "./cmds/index.js";
-import { KeybindingManager } from "./ext/keybindingmanager.js";
-import { Logger } from "./ext/logger.js";
+import { KeybindingManager } from "./shell/keybindingmanager.js";
+import { Logger } from "./shell/logger.js";
 
 export default class P7ShortcutsExtension extends Extension {
   enable() {
