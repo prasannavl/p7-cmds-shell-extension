@@ -35,7 +35,12 @@ function createWindow({ id = 7, maximized = false, monitor = 0 } = {}) {
     get_transient_for: () => null,
     get_monitor: () => monitor,
     get_frame_rect: () => ({ ...frameRect }),
-    get_maximize_flags: () => maximizeFlags,
+    get maximized_horizontally() {
+      return maximizeFlags !== 0;
+    },
+    get maximized_vertically() {
+      return maximizeFlags !== 0;
+    },
     is_fullscreen: () => false,
     unmake_fullscreen() {},
     unmaximize() {
@@ -61,6 +66,7 @@ function createWindow({ id = 7, maximized = false, monitor = 0 } = {}) {
         else handlers.delete(signal);
       }
     },
+    find_property: () => null,
     emit(signal) {
       for (const { callback } of [...handlers.get(signal) ?? []]) callback();
     },
@@ -74,6 +80,9 @@ function createWindow({ id = 7, maximized = false, monitor = 0 } = {}) {
 
 function setGlobal(win, monitorCount = 1) {
   globalThis.global = {
+    backend: {
+      get_monitor_manager: () => null,
+    },
     display: {
       get_focus_window: () => win,
       get_n_monitors: () => monitorCount,

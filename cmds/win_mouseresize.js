@@ -725,8 +725,6 @@ function connectDisplaySignals(
   }
   const signalNames = [
     "window-created",
-    "window-removed",
-    "window-closed",
     "window-demands-attention",
     "window-marked-urgent",
     "restacked",

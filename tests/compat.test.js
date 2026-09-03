@@ -4,6 +4,7 @@ import {
   connectWhenWindowRestored,
   getMaximizeState,
   getWindowMonitor,
+  hasSignal,
   normalizeAcceleratorKey,
   normalizeWindow,
   resolveTopLevelWindow,
@@ -18,25 +19,34 @@ function test(name, callback) {
   print(`ok - ${name}`);
 }
 
-test("modern maximize flags expose partial and full states", () => {
-  assertEquals(getMaximizeState({ get_maximize_flags: () => 1 }), {
-    any: true,
-    full: false,
-    horizontal: true,
-    vertical: false,
-  });
-  assertEquals(getMaximizeState({ get_maximize_flags: () => 3 }), {
-    any: true,
-    full: true,
-    horizontal: true,
-    vertical: true,
-  });
-});
-
-test("legacy maximize properties remain the zero-flags fallback", () => {
+test("maximize flags expose partial and full states", () => {
   assertEquals(
     getMaximizeState({
-      get_maximize_flags: () => 0,
+      get_maximize_flags: () => 1,
+    }),
+    {
+      any: true,
+      full: false,
+      horizontal: true,
+      vertical: false,
+    },
+  );
+  assertEquals(
+    getMaximizeState({
+      get_maximize_flags: () => 3,
+    }),
+    {
+      any: true,
+      full: true,
+      horizontal: true,
+      vertical: true,
+    },
+  );
+});
+
+test("maximize properties provide the legacy flags", () => {
+  assertEquals(
+    getMaximizeState({
       maximized_horizontally: false,
       maximized_vertically: true,
     }),
@@ -53,7 +63,8 @@ test("normalization leaves ordinary windows untouched", () => {
   const calls = [];
   const win = {
     is_fullscreen: () => false,
-    get_maximize_flags: () => 0,
+    maximized_horizontally: false,
+    maximized_vertically: false,
     unmake_fullscreen: () => calls.push("fullscreen"),
     unmaximize: () => calls.push("maximize"),
   };
@@ -65,7 +76,8 @@ test("normalization clears fullscreen and maximize together", () => {
   const calls = [];
   const win = {
     is_fullscreen: () => true,
-    get_maximize_flags: () => 3,
+    maximized_horizontally: true,
+    maximized_vertically: true,
     unmake_fullscreen: () => calls.push("fullscreen"),
     unmaximize: () => calls.push("maximize"),
   };
@@ -74,7 +86,7 @@ test("normalization clears fullscreen and maximize together", () => {
 });
 
 test("transient chains resolve to their top-level window", () => {
-  const root = {};
+  const root = { get_transient_for: () => null };
   const parent = { get_transient_for: () => root };
   const child = { get_transient_for: () => parent };
   assertEquals(resolveTopLevelWindow(child) === root, true);
@@ -95,6 +107,12 @@ test("work-area monitor lookup rejects missing and stale monitors", () => {
   assertEquals(getWindowMonitor({ get_monitor: () => 1 }), 1);
 });
 
+test("signal lookup handles missing and non-GObject values", () => {
+  assertEquals(hasSignal(null, "unmanaged"), false);
+  assertEquals(hasSignal({}, "unmanaged"), false);
+  assertEquals(hasSignal({}, "notify::fullscreen"), false);
+});
+
 test("restored-window callbacks wait for geometry signals and disconnect", () => {
   let maximized = true;
   const handlers = new Map();
@@ -102,7 +120,12 @@ test("restored-window callbacks wait for geometry signals and disconnect", () =>
   const calls = [];
   const win = {
     is_fullscreen: () => false,
-    get_maximize_flags: () => maximized ? 3 : 0,
+    get maximized_horizontally() {
+      return maximized;
+    },
+    get maximized_vertically() {
+      return maximized;
+    },
     connectObject(...args) {
       const connectionOwner = args.pop();
       for (let index = 0; index < args.length; index += 2) {
@@ -119,6 +142,7 @@ test("restored-window callbacks wait for geometry signals and disconnect", () =>
         }
       }
     },
+    find_property: () => null,
   };
 
   connectWhenWindowRestored(
@@ -140,7 +164,8 @@ test("restored-window callbacks cancel when the window is unmanaged", () => {
   const calls = [];
   const win = {
     is_fullscreen: () => true,
-    get_maximize_flags: () => 0,
+    maximized_horizontally: false,
+    maximized_vertically: false,
     connectObject(...args) {
       args.pop();
       for (let index = 0; index < args.length; index += 2) {
@@ -150,6 +175,7 @@ test("restored-window callbacks cancel when the window is unmanaged", () => {
     disconnectObject() {
       handlers.clear();
     },
+    find_property: () => null,
   };
   connectWhenWindowRestored(
     win,
