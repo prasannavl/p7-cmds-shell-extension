@@ -2,6 +2,11 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [36] - 2026-09-03
+
+- Rename the Shell-only integration layer from `ext/` to `shell/` and update
+  imports, documentation, tests, and release packaging to match.
+
 ## [35] - 2026-09-01
 
 - Add comprehensive behavioral, GSettings, command lifecycle, package, and GNOME
