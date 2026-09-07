@@ -3,7 +3,10 @@
 import Clutter from "gi://Clutter";
 import GObject from "gi://GObject";
 import Meta from "gi://Meta";
-import { acceleratorsEqual as compareAccelerators } from "../common/config.js";
+import {
+  acceleratorsEqual as compareAccelerators,
+  createAcceleratorKeyNormalizer,
+} from "../common/config.js";
 
 export const MaximizeFlags = Meta.MaximizeFlags;
 
@@ -12,8 +15,7 @@ export function getDisplay() {
 }
 
 export function getFocusedWindow() {
-  const display = getDisplay();
-  return display.get_focus_window();
+  return getDisplay().get_focus_window();
 }
 
 export function getWindowMonitor(win) {
@@ -29,12 +31,9 @@ export function resolveTopLevelWindow(win) {
 
   let current = win;
   const seen = new Set([current]);
-  // Do not assume win is a valid Meta.Window; check each value before use.
-  while (typeof current.get_transient_for === "function") {
+  while (true) {
     const parent = current.get_transient_for();
-    if (!parent || seen.has(parent)) {
-      break;
-    }
+    if (!parent || seen.has(parent)) break;
     current = parent;
     seen.add(current);
   }
@@ -71,9 +70,6 @@ export function isWindowFullscreen(win) {
 }
 
 export function normalizeWindow(win) {
-  if (!win) {
-    return false;
-  }
   let changed = false;
   if (isWindowFullscreen(win)) {
     win.unmake_fullscreen();
@@ -90,12 +86,7 @@ export function isWindowRestored(win) {
   return !isWindowFullscreen(win) && !getMaximizeState(win).any;
 }
 
-export function connectWhenWindowRestored(
-  win,
-  owner,
-  onRestored,
-  onUnmanaged,
-) {
+export function connectWhenWindowRestored(win, owner, onRestored, onUnmanaged) {
   let finished = false;
   const finish = (callback) => {
     if (finished) return;
@@ -133,6 +124,7 @@ export function getCursorTracker() {
   const tracker = global.backend.get_cursor_tracker
     ? global.backend.get_cursor_tracker()
     : Meta.CursorTracker.get_for_display(display);
+  if (!tracker) return null;
   return {
     connect(handler, owner) {
       tracker.connectObject("position-invalidated", handler, owner);
@@ -152,8 +144,9 @@ export function hasSignal(obj, name) {
   }
   if (name.startsWith("notify::")) {
     const propName = name.slice("notify::".length);
-    return typeof obj.find_property === "function" &&
-      !!obj.find_property(propName);
+    return (
+      typeof obj.find_property === "function" && !!obj.find_property(propName)
+    );
   }
   const gtype = obj.constructor?.$gtype;
   if (!gtype || !GObject.type_is_a(gtype, GObject.TYPE_OBJECT)) {
@@ -189,7 +182,9 @@ export function setResizeCursor(active) {
   // GNOME 48-50 use the modern cursor names. GNOME 50 moves them and the
   // cursor setter from Meta.Display to Clutter.Stage.
   const cursors = Meta.Cursor ?? Clutter.CursorType;
-  const cursor = active ? cursors.ALL_RESIZE ?? cursors.MOVE : cursors.DEFAULT;
+  const cursor = active
+    ? (cursors.ALL_RESIZE ?? cursors.MOVE)
+    : cursors.DEFAULT;
   if (Meta.Cursor) {
     display.set_cursor(cursor);
   } else {
@@ -202,15 +197,10 @@ export function getPointerData() {
   return { x, y, modifiers };
 }
 
-export function normalizeAcceleratorKey(key) {
-  let keyval = Clutter[`KEY_${key}`];
-  if (keyval === undefined && key.startsWith("XF86")) {
-    keyval = Clutter[`KEY_${key.slice(4)}`];
-  }
-  return keyval === undefined || keyval === Clutter.KEY_VoidSymbol
-    ? null
-    : String(keyval);
-}
+export const normalizeAcceleratorKey = createAcceleratorKeyNormalizer(
+  Clutter,
+  (keyval) => Clutter.keyval_convert_case(keyval)[0],
+);
 
 export function acceleratorsEqual(left, right) {
   return compareAccelerators(left, right, normalizeAcceleratorKey);

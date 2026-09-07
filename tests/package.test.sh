@@ -19,6 +19,7 @@ expected_files=$(printf '%s\n' \
   shell/logger.js \
   metadata.json \
   prefs/ \
+  prefs/config.js \
   prefs/ui.js \
   prefs.js \
   schemas/ \

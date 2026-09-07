@@ -17,11 +17,45 @@ Deno.test("metadata and schema identify the same extension", () => {
   );
 });
 
-Deno.test("schema contains every declared command key", async () => {
-  const { COMMAND_DEFINITIONS } = await import("../common/config.js");
-  for (const command of COMMAND_DEFINITIONS) {
-    assert(schema.includes(`name="${command.id}"`), `${command.id} is missing`);
-  }
+Deno.test("schema contains every declared setting key", async () => {
+  const { COMMAND_DEFINITIONS, SETTING_KEYS } = await import(
+    "../common/config.js"
+  );
+  const declared = [
+    ...COMMAND_DEFINITIONS.map((command) => command.id),
+    ...Object.values(SETTING_KEYS),
+  ].sort();
+  const schemaKeys = [...schema.matchAll(/<key name="([^"]+)"/g)]
+    .map((match) => match[1])
+    .sort();
+  assertEquals(declared, schemaKeys);
+});
+
+Deno.test("runtime defaults match the schema", async () => {
+  const {
+    DEFAULT_KEYBINDING_ACTION_MODE,
+    DEFAULT_KEYBINDING_FLAGS,
+    DEFAULT_WIN_OPTSIZE_CONFIG,
+    SETTING_KEYS,
+  } = await import("../common/config.js");
+  const schemaDefault = (key) => {
+    const value = schema.match(
+      new RegExp(`<key name="${key}"[\\s\\S]*?<default>([^<]+)</default>`),
+    )?.[1];
+    return value?.startsWith('"') ? JSON.parse(value) : value;
+  };
+  assertEquals(
+    JSON.parse(schemaDefault(SETTING_KEYS.winOptsizeConfig)),
+    DEFAULT_WIN_OPTSIZE_CONFIG,
+  );
+  assertEquals(
+    schemaDefault(SETTING_KEYS.keybindingFlags),
+    DEFAULT_KEYBINDING_FLAGS,
+  );
+  assertEquals(
+    schemaDefault(SETTING_KEYS.keybindingActionMode),
+    DEFAULT_KEYBINDING_ACTION_MODE,
+  );
 });
 
 Deno.test("current release has a dated changelog entry", async () => {
@@ -45,6 +79,7 @@ Deno.test("all relative runtime imports resolve", async () => {
     "shell/compat.js",
     "shell/keybindingmanager.js",
     "shell/logger.js",
+    "prefs/config.js",
     "prefs/ui.js",
     "cmds/win_mouseresize.js",
     "cmds/win_optsize.js",

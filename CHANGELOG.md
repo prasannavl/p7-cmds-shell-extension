@@ -2,6 +2,29 @@
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+## [38] - 2026-09-07
+
+- Apply preference edits immediately, distinguish fallback from breakpoint
+  optsize scales, and add validated full-config editing, import, and export with
+  confirmation and failed-write rollback.
+- Make optsize follow Mutter-accepted geometry: resolve transient windows, wait
+  for restoration, clamp results to the current work area, and reset cycles on
+  external moves or configuration changes.
+- Rebuild mouse resize around one owned session that coalesces geometry work,
+  preserves pending Wayland size requests while correcting anchors, and flips
+  locked edges only on a later Shift press.
+- Make keybinding suppression transactional across P7, Shell, window-manager,
+  and custom shortcuts, with canonical accelerator matching, failed-registration
+  rollback, and merge-safe restoration after concurrent edits.
+- Centralize configuration, geometry, command, and preferences ownership;
+  isolate Shell compatibility, keep verbose logging settings-owned, and bound
+  accelerator, JSON, optsize, and generated CSS inputs.
+- Expand reproducible regression and package coverage for lifecycle cleanup,
+  configuration reloads, Mutter behavior, shortcut restoration, and GNOME Shell
+  45 through 50.
+
 ## [37] - 2026-09-04
 
 - Simplify GNOME Shell compatibility code by using stable APIs while retaining

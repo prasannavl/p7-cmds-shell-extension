@@ -1,16 +1,13 @@
 import {
   acceleratorsEqual,
   cloneWinOptsizeConfig,
-  DEFAULT_INDICATOR_BACKGROUND_COLOR,
-  DEFAULT_INDICATOR_BORDER,
-  DEFAULT_INDICATOR_BORDER_COLOR,
   DEFAULT_WIN_OPTSIZE_CONFIG,
-  isValidAccelerator,
-  normalizeIndicatorBorderSize,
+  FULL_CONFIG_FORMAT_VERSION,
+  normalizeFullConfig,
   normalizeWinOptsizeConfig,
   parseEnumValue,
   parseWinOptsizeConfig,
-  resolveIndicatorConfig,
+  sanitizeCssColor,
   sanitizeKeybindings,
 } from "../common/config.js";
 import { assert, assertEquals, assertNotEquals } from "./testlib.js";
@@ -51,6 +48,7 @@ for (
     [[], "Config must be an object."],
     [{ scales: "wide" }, "Scales must be an array."],
     [{ scales: [[0.5, "tall"]] }, "Scales has invalid scale at index 0."],
+    [{ scales: [[0.5]] }, "Scales has invalid scale at index 0."],
     [{ scales: [[0, 0.5]] }, "Scales has invalid scale at index 0."],
     [{ scales: [[0.5, -1]] }, "Scales has invalid scale at index 0."],
     [{ breakpoints: {} }, "Breakpoints must be an array."],
@@ -78,7 +76,6 @@ for (
 }
 
 Deno.test("JSON parsing reports syntax and semantic errors", () => {
-  assertEquals(parseWinOptsizeConfig(3).error, "Expected a JSON string.");
   assertEquals(parseWinOptsizeConfig(" ").error, "JSON is empty.");
   assertEquals(parseWinOptsizeConfig("{").ok, false);
   assertEquals(
@@ -87,27 +84,55 @@ Deno.test("JSON parsing reports syntax and semantic errors", () => {
   );
 });
 
+Deno.test("CSS colors cannot escape their generated declaration", () => {
+  const fallback = "transparent";
+  assertEquals(
+    sanitizeCssColor(" color-mix(in srgb, red 25%, blue) ", fallback),
+    "color-mix(in srgb, red 25%, blue)",
+  );
+  for (const value of ["", "red; color: blue", "red\ncolor: blue", "red{}"]) {
+    assertEquals(sanitizeCssColor(value, fallback), fallback);
+  }
+});
+
 Deno.test("keybinding sanitization trims, validates, and deduplicates", () => {
-  const knownKeys = new Set(["x", "F12"]);
-  const normalizeKey = (key) => knownKeys.has(key) ? key : null;
+  const knownKeys = new Map([["x", "x"], ["f12", "F12"]]);
+  const normalizeKey = (key) => knownKeys.get(key.toLowerCase()) ?? null;
   assertEquals(
     sanitizeKeybindings([
       " <Super>x ",
-      "<Super>x",
+      "<Super>X",
+      "<Mod4>X",
       "",
       "<Super><Shift>x",
       "<Shift><Super>x",
       "<broken",
       "<Bogus>x",
       "<Super>DefinitelyNotAKey",
-      4,
+      "<Mod1>f12",
+      "<Alt>F12",
+      "<Release>F12",
+      "<Mod2>F12",
     ], normalizeKey),
-    ["<Super>x", "<Super><Shift>x"],
+    ["<Super>x", "<Mod4>X", "<Super><Shift>x", "<Mod1>f12"],
   );
-  assertEquals(sanitizeKeybindings(null), []);
-  assertEquals(isValidAccelerator("<Primary>F12", normalizeKey), true);
-  assertEquals(isValidAccelerator("<Mod2>F12", normalizeKey), true);
-  assertEquals(isValidAccelerator("<Release>F12", normalizeKey), true);
+  assertEquals(
+    acceleratorsEqual("<Mod2>F12", "F12", normalizeKey),
+    false,
+  );
+  assertEquals(
+    acceleratorsEqual("<Alt>F12", "<Mod1>f12", normalizeKey),
+    true,
+  );
+  assertEquals(
+    acceleratorsEqual("<Super>x", "<Mod4>X", normalizeKey),
+    false,
+  );
+  // Mutter ignores unknown modifier tags in external settings.
+  assertEquals(
+    acceleratorsEqual("<Release>F12", "F12", normalizeKey),
+    true,
+  );
   assertEquals(
     acceleratorsEqual(
       "<Super><Shift>x",
@@ -123,44 +148,96 @@ Deno.test("enum values accept names and numeric strings with a fallback", () => 
   assertEquals(parseEnumValue("normal", values, 9), 1);
   assertEquals(parseEnumValue(" 4 ", values, 9), 4);
   assertEquals(parseEnumValue("future", values, 9), 9);
-  assertEquals(parseEnumValue(null, values, 9), 9);
 });
 
-Deno.test("indicator config accepts safe colors and positive sizes", () => {
-  assertEquals(
-    resolveIndicatorConfig({
-      winMouseResize: {
-        borderColor: " #abc ",
-        backgroundColor: "hsla(1, 2%, 3%, 0.4)",
-        borderSize: 4.6,
-      },
-    }),
-    {
-      colors: { borderColor: "#abc", backgroundColor: "hsla(1, 2%, 3%, 0.4)" },
-      borderSize: 5,
+function fullConfig() {
+  return {
+    formatVersion: FULL_CONFIG_FORMAT_VERSION,
+    keybindings: {
+      "cmd-win-optsize": ["<Super>x"],
+      "cmd-win-mouseresize": ["<Super><Shift>x"],
     },
+    keybindingFlags: "ignore_autorepeat",
+    keybindingActionMode: "normal",
+    overrideConflictingBindings: true,
+    verboseLogging: false,
+    winOptsize: cloneWinOptsizeConfig(),
+    winMouseResize: {
+      borderColor: " rgba(1, 2, 3, 0.5) ",
+      backgroundColor: "transparent",
+      borderSize: 4,
+    },
+  };
+}
+
+Deno.test("full config validation normalizes every user setting", () => {
+  const result = normalizeFullConfig(fullConfig());
+  assert(result.ok);
+  assertEquals(result.value.keybindingFlags, "IGNORE_AUTOREPEAT");
+  assertEquals(result.value.keybindingActionMode, "NORMAL");
+  assertEquals(
+    result.value.winMouseResize.borderColor,
+    "rgba(1, 2, 3, 0.5)",
   );
 });
 
-Deno.test("indicator config rejects CSS injection and invalid sizes", () => {
-  assertEquals(
-    resolveIndicatorConfig({
-      winMouseResize: {
-        borderColor: "red; background: white",
-        backgroundColor: "blue\ncolor: red",
-        borderSize: 0,
+for (
+  const [name, mutate, error] of [
+    [
+      "future format",
+      (config) => {
+        config.formatVersion += 1;
       },
-    }),
-    {
-      colors: {
-        borderColor: DEFAULT_INDICATOR_BORDER_COLOR,
-        backgroundColor: DEFAULT_INDICATOR_BACKGROUND_COLOR,
+      "Unsupported full config format",
+    ],
+    [
+      "unknown field",
+      (config) => {
+        config.extra = true;
       },
-      borderSize: DEFAULT_INDICATOR_BORDER,
-    },
-  );
-  assertEquals(
-    normalizeIndicatorBorderSize(Number.NaN),
-    DEFAULT_INDICATOR_BORDER,
-  );
-});
+      "Full config contains unknown field",
+    ],
+    [
+      "missing shortcut",
+      (config) => delete config.keybindings["cmd-win-optsize"],
+      "Keybindings is missing field",
+    ],
+    [
+      "duplicate shortcut",
+      (config) => config.keybindings["cmd-win-optsize"].push("<Super>x"),
+      "Keybindings.cmd-win-optsize contains an invalid or duplicate shortcut",
+    ],
+    [
+      "invalid optsize",
+      (config) => {
+        config.winOptsize.scales = [[0, 1]];
+      },
+      "winOptsize: Scales has invalid scale",
+    ],
+    [
+      "unsafe color",
+      (config) => {
+        config.winMouseResize.borderColor = "red; color: blue";
+      },
+      "winMouseResize.borderColor must be a CSS color value",
+    ],
+    [
+      "invalid border size",
+      (config) => {
+        config.winMouseResize.borderSize = 0;
+      },
+      "winMouseResize.borderSize must be an integer",
+    ],
+  ]
+) {
+  Deno.test(`full config rejects ${name}`, () => {
+    const config = fullConfig();
+    mutate(config);
+    const result = normalizeFullConfig(config);
+    assertEquals(result.ok, false);
+    assert(
+      result.error.startsWith(error),
+      `${result.error} does not start with ${error}`,
+    );
+  });
+}

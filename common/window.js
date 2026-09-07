@@ -22,7 +22,7 @@ export function getNextOptsize(config, workArea, originalRect, index) {
   const scales = resolveWinOptsizeScales(config, workArea);
   const nextIndex = (index + 1) % (scales.length + 1);
   const target = nextIndex === scales.length
-    ? cloneRect(originalRect)
+    ? originalRect
     : getScaledRect(config, workArea, scales[nextIndex]);
   return {
     index: nextIndex,
@@ -44,10 +44,7 @@ export function resolveWinOptsizeScales(config, workArea) {
   return scales.length > 0 ? scales : DEFAULT_WIN_OPTSIZE_CONFIG.scales;
 }
 
-export function resolveScaleSize(scale, axisSize, targetWidth, aspect) {
-  if (scale === null && targetWidth != null) {
-    return Math.round(targetWidth / aspect);
-  }
+export function resolveScaleSize(scale, axisSize) {
   if (
     typeof scale !== "number" || !Number.isFinite(scale) || scale <= 0 ||
     scale > axisSize
@@ -58,25 +55,19 @@ export function resolveScaleSize(scale, axisSize, targetWidth, aspect) {
 }
 
 export function clampRectToWorkArea(rect, workArea) {
-  const width = Math.max(1, Math.min(Math.round(rect.width), workArea.width));
-  const height = Math.max(
-    1,
-    Math.min(Math.round(rect.height), workArea.height),
-  );
-  return {
-    x: clamp(
-      Math.round(rect.x),
-      workArea.x,
-      workArea.x + workArea.width - width,
-    ),
-    y: clamp(
-      Math.round(rect.y),
-      workArea.y,
-      workArea.y + workArea.height - height,
-    ),
-    width,
-    height,
-  };
+  const clamped = {};
+  for (const { position, size } of RECT_AXES) {
+    clamped[size] = Math.max(
+      1,
+      Math.min(Math.round(rect[size]), workArea[size]),
+    );
+    clamped[position] = clamp(
+      Math.round(rect[position]),
+      workArea[position],
+      workArea[position] + workArea[size] - clamped[size],
+    );
+  }
+  return clamped;
 }
 
 function getScaledRect(config, workArea, scale) {
@@ -84,13 +75,18 @@ function getScaledRect(config, workArea, scale) {
   if (config.aspectBasedInversion && workArea.height > workArea.width) {
     [widthScale, heightScale] = [heightScale, widthScale];
   }
-  const width = resolveScaleSize(widthScale, workArea.width);
-  const height = resolveScaleSize(
-    heightScale,
-    workArea.height,
-    width,
-    workArea.width / workArea.height,
-  );
+  const aspect = workArea.width / workArea.height;
+  let width;
+  let height;
+  if (widthScale === null) {
+    height = resolveScaleSize(heightScale, workArea.height);
+    width = Math.round(height * aspect);
+  } else {
+    width = resolveScaleSize(widthScale, workArea.width);
+    height = heightScale === null
+      ? Math.round(width / aspect)
+      : resolveScaleSize(heightScale, workArea.height);
+  }
   return {
     x: workArea.x + (workArea.width - width) / 2,
     y: workArea.y + (workArea.height - height) / 2,
@@ -104,6 +100,11 @@ function clamp(value, min, max) {
 }
 
 export const MIN_RESIZE_SIZE = 10;
+const RECT_AXES = [
+  { position: "x", size: "width", near: "left", far: "right" },
+  { position: "y", size: "height", near: "top", far: "bottom" },
+];
+const NO_EDGES = { left: false, right: false, top: false, bottom: false };
 
 export function getPointDelta(fromPoint, toPoint) {
   return { x: toPoint.x - fromPoint.x, y: toPoint.y - fromPoint.y };
@@ -115,40 +116,28 @@ export function hasLockedEdges(edges) {
 
 export function flipLockedEdges(edges) {
   if (!hasLockedEdges(edges)) return null;
-  return {
-    left: Boolean(edges.right),
-    right: Boolean(edges.left),
-    top: Boolean(edges.bottom),
-    bottom: Boolean(edges.top),
-  };
+  const flipped = {};
+  for (const { near, far } of RECT_AXES) {
+    flipped[near] = Boolean(edges[far]);
+    flipped[far] = Boolean(edges[near]);
+  }
+  return flipped;
 }
 
 export function lockResizeEdges(edges, delta, point, rect) {
-  const next = edges
-    ? { ...edges }
-    : { left: false, right: false, top: false, bottom: false };
-  if (!next.left && !next.right && delta.x !== 0) {
-    const leftDistance = Math.abs(point.x - rect.x);
-    const rightDistance = Math.abs(point.x - (rect.x + rect.width));
-    const nearestIsRight = rightDistance < leftDistance;
-    if (delta.x < 0) {
-      next.right = nearestIsRight;
-      next.left = !nearestIsRight;
+  const next = { ...NO_EDGES, ...edges };
+  for (const { position, size, near, far } of RECT_AXES) {
+    if (next[near] || next[far] || delta[position] === 0) continue;
+    const nearDistance = Math.abs(point[position] - rect[position]);
+    const farDistance = Math.abs(
+      point[position] - (rect[position] + rect[size]),
+    );
+    if (delta[position] < 0) {
+      next[far] = farDistance < nearDistance;
+      next[near] = !next[far];
     } else {
-      next.left = leftDistance < rightDistance;
-      next.right = !next.left;
-    }
-  }
-  if (!next.top && !next.bottom && delta.y !== 0) {
-    const topDistance = Math.abs(point.y - rect.y);
-    const bottomDistance = Math.abs(point.y - (rect.y + rect.height));
-    const nearestIsBottom = bottomDistance < topDistance;
-    if (delta.y < 0) {
-      next.bottom = nearestIsBottom;
-      next.top = !nearestIsBottom;
-    } else {
-      next.top = topDistance < bottomDistance;
-      next.bottom = !next.top;
+      next[near] = nearDistance < farDistance;
+      next[far] = !next[near];
     }
   }
   return next;
@@ -156,31 +145,31 @@ export function lockResizeEdges(edges, delta, point, rect) {
 
 export function computeResizeRect(rect, edges, delta, minSize = {}) {
   if (!hasLockedEdges(edges)) return null;
-  const minWidth = minSize.width ?? MIN_RESIZE_SIZE;
-  const minHeight = minSize.height ?? MIN_RESIZE_SIZE;
-  let left = rect.x;
-  let right = rect.x + rect.width;
-  let top = rect.y;
-  let bottom = rect.y + rect.height;
-
-  if (edges.left) left = Math.min(rect.x + delta.x, right - minWidth);
-  else if (edges.right) {
-    right = Math.max(rect.x + rect.width + delta.x, left + minWidth);
+  const resized = cloneRect(rect);
+  for (const { position, size, near, far } of RECT_AXES) {
+    const minimum = minSize[size] ?? MIN_RESIZE_SIZE;
+    if (edges[near]) {
+      const end = rect[position] + rect[size];
+      resized[position] = Math.min(
+        rect[position] + delta[position],
+        end - minimum,
+      );
+      resized[size] = end - resized[position];
+    } else if (edges[far]) {
+      resized[size] = Math.max(rect[size] + delta[position], minimum);
+    }
   }
-  if (edges.top) top = Math.min(rect.y + delta.y, bottom - minHeight);
-  else if (edges.bottom) {
-    bottom = Math.max(rect.y + rect.height + delta.y, top + minHeight);
-  }
-
-  return { x: left, y: top, width: right - left, height: bottom - top };
+  return resized;
 }
 
 export function preserveResizeAnchors(actual, requested, edges) {
   if (!actual || !requested || !edges) return actual;
   const rect = cloneRect(actual);
-  if (edges.right) rect.x = requested.x;
-  else if (edges.left) rect.x = requested.x + requested.width - actual.width;
-  if (edges.bottom) rect.y = requested.y;
-  else if (edges.top) rect.y = requested.y + requested.height - actual.height;
+  for (const { position, size, near, far } of RECT_AXES) {
+    if (edges[far]) rect[position] = requested[position];
+    else if (edges[near]) {
+      rect[position] = requested[position] + requested[size] - actual[size];
+    }
+  }
   return rect;
 }

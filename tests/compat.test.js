@@ -190,7 +190,10 @@ test("restored-window callbacks cancel when the window is unmanaged", () => {
 
 test("Clutter normalizes supported accelerator key names", () => {
   assertEquals(normalizeAcceleratorKey("x"), String(Clutter.KEY_x));
+  assertEquals(normalizeAcceleratorKey("X"), String(Clutter.KEY_x));
   assertEquals(normalizeAcceleratorKey("F12"), String(Clutter.KEY_F12));
+  assertEquals(normalizeAcceleratorKey("f12"), String(Clutter.KEY_F12));
+  assertEquals(normalizeAcceleratorKey("left"), String(Clutter.KEY_Left));
   assertEquals(
     normalizeAcceleratorKey("XF86AudioRaiseVolume"),
     String(Clutter.KEY_AudioRaiseVolume),
@@ -201,6 +204,9 @@ test("Clutter normalizes supported accelerator key names", () => {
     acceleratorsEqual("<Super><Shift>x", "<Shift><Super>x"),
     true,
   );
+  assertEquals(acceleratorsEqual("<Alt>F12", "<Mod1>f12"), true);
+  assertEquals(acceleratorsEqual("<Super>F12", "<Mod4>f12"), false);
+  assertEquals(acceleratorsEqual("<Control>x", "<Ctl>X"), true);
 });
 
 print(`${passed} compatibility tests passed`);

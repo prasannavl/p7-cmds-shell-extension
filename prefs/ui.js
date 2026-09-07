@@ -2,6 +2,7 @@
 
 import Adw from "gi://Adw";
 import Gdk from "gi://Gdk";
+import Gio from "gi://Gio";
 import GLib from "gi://GLib";
 import Gtk from "gi://Gtk";
 import {
@@ -9,21 +10,163 @@ import {
   ACTION_MODE_NAMES,
   cloneWinOptsizeConfig,
   COMMAND_DEFINITIONS,
+  createAcceleratorKeyNormalizer,
   KEYBINDING_FLAG_NAMES,
+  MAX_FULL_CONFIG_FILE_SIZE,
+  normalizeFullConfig,
   parseWinOptsizeConfig,
+  SETTING_KEYS,
+  USER_SETTING_KEYS,
 } from "../common/config.js";
 import {
   createConflictKeybindingIndex,
   findConflictingKeybindings,
 } from "../common/keybindings.js";
+import { readFullConfig, replaceFullConfig } from "./config.js";
 
-function normalizeAcceleratorKey(key) {
-  const keyval = Gdk.keyval_from_name(key);
-  return keyval === Gdk.KEY_VoidSymbol ? null : Gdk.keyval_name(keyval);
-}
+export const normalizeAcceleratorKey = createAcceleratorKeyNormalizer(
+  Gdk,
+  Gdk.keyval_to_lower,
+);
 
 function acceleratorsEqual(left, right) {
   return compareAccelerators(left, right, normalizeAcceleratorKey);
+}
+
+class PreferencesUi {
+  constructor(window, settings) {
+    this.window = window;
+    this.settings = settings;
+    this.cleanups = [];
+    window.connect("destroy", () => {
+      for (const cleanup of this.cleanups.splice(0)) cleanup();
+    });
+  }
+
+  cleanup(callback) {
+    this.cleanups.push(callback);
+  }
+
+  watch(key, handler) {
+    const id = this.settings.connect(`changed::${key}`, handler);
+    this.cleanup(() => this.settings.disconnect(id));
+  }
+
+  sync(key, control, signal, read, show, save) {
+    let refreshing = false;
+    const refresh = () => {
+      refreshing = true;
+      show(read());
+      refreshing = false;
+    };
+    refresh();
+    this.watch(key, refresh);
+    control.connect(signal, () => {
+      if (!refreshing) save();
+    });
+  }
+
+  bind(key, control, property) {
+    this.settings.bind(
+      key,
+      control,
+      property,
+      Gio.SettingsBindFlags.DEFAULT,
+    );
+    return control;
+  }
+}
+
+function createRowList(container) {
+  const rows = [];
+  return {
+    add(row) {
+      container.add(row);
+      rows.push(row);
+    },
+    remove(row) {
+      const index = rows.indexOf(row);
+      if (index < 0) return;
+      rows.splice(index, 1);
+      container.remove(row);
+    },
+    clear() {
+      for (const row of rows.splice(0)) container.remove(row);
+    },
+  };
+}
+
+function button(label, clicked, properties = {}) {
+  const result = new Gtk.Button({
+    label,
+    valign: Gtk.Align.CENTER,
+    ...properties,
+  });
+  if (clicked) result.connect("clicked", clicked);
+  return result;
+}
+
+function withSuffix(row, ...widgets) {
+  for (const widget of widgets) row.add_suffix(widget);
+  return row;
+}
+
+function showToast(window, title) {
+  window.add_toast(new Adw.Toast({ title }));
+}
+
+function requireConfigFileSize(size) {
+  if (size > MAX_FULL_CONFIG_FILE_SIZE) {
+    throw new Error(
+      `Config file must contain at most ${MAX_FULL_CONFIG_FILE_SIZE} bytes`,
+    );
+  }
+}
+
+function parseFullConfigJson(text) {
+  requireConfigFileSize(new TextEncoder().encode(text).length);
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("Invalid JSON");
+  }
+}
+
+function chooseJsonFile(window, action, title, onFile, currentName = null) {
+  const chooser = new Gtk.FileChooserNative({
+    title,
+    transient_for: window,
+    modal: true,
+    action,
+    accept_label: action === Gtk.FileChooserAction.SAVE ? "Export" : "Import",
+  });
+  const filter = new Gtk.FileFilter();
+  filter.set_name("JSON files");
+  filter.add_mime_type("application/json");
+  filter.add_pattern("*.json");
+  chooser.add_filter(filter);
+  if (currentName) chooser.set_current_name(currentName);
+  chooser.connect("response", (_dialog, response) => {
+    try {
+      if (response === Gtk.ResponseType.ACCEPT) onFile(chooser.get_file());
+    } finally {
+      chooser.destroy();
+    }
+  });
+  chooser.show();
+}
+
+async function readConfigFile(file, cancellable) {
+  const info = await file.query_info_async(
+    Gio.FILE_ATTRIBUTE_STANDARD_SIZE,
+    Gio.FileQueryInfoFlags.NONE,
+    GLib.PRIORITY_DEFAULT,
+    cancellable,
+  );
+  requireConfigFileSize(info.get_size());
+  const [contents] = await file.load_contents_async(cancellable);
+  requireConfigFileSize(contents.length);
+  return parseFullConfigJson(new TextDecoder().decode(contents));
 }
 
 export function getScaleIncrement(value) {
@@ -60,72 +203,68 @@ function captureShortcut(parent, onDone) {
     transient_for: parent,
     default_width: 360,
     default_height: 140,
-  });
-
-  const content = new Gtk.Box({
-    orientation: Gtk.Orientation.VERTICAL,
-    spacing: 12,
-    margin_top: 24,
-    margin_bottom: 24,
-    margin_start: 24,
-    margin_end: 24,
-  });
-
-  content.append(
-    new Gtk.Label({
-      label: "Press a key combination, or Esc to cancel.",
-      wrap: true,
-      justify: Gtk.Justification.CENTER,
+    content: new Adw.StatusPage({
+      title: "Press a key combination",
+      description: "Press Esc to cancel.",
     }),
-  );
-
-  dialog.set_content(content);
+  });
 
   const controller = new Gtk.EventControllerKey();
-  const controllerId = controller.connect(
-    "key-pressed",
-    (_controller, keyval, _keycode, state) => {
-      if (keyval === Gdk.KEY_Escape) {
-        dialog.close();
-        return Gdk.EVENT_STOP;
-      }
-
-      const mods = state & Gtk.accelerator_get_default_mod_mask();
-      if (!Gtk.accelerator_valid(keyval, mods)) {
-        return Gdk.EVENT_STOP;
-      }
-
-      const accel = Gtk.accelerator_name(keyval, mods);
-      if (accel) {
-        onDone(accel);
-      }
+  controller.connect("key-pressed", (_controller, keyval, _keycode, state) => {
+    if (keyval === Gdk.KEY_Escape) {
       dialog.close();
       return Gdk.EVENT_STOP;
-    },
-  );
-  dialog.connect("close-request", () => {
-    controller.disconnect(controllerId);
-    return false;
+    }
+
+    const mods = state & Gtk.accelerator_get_default_mod_mask();
+    if (!Gtk.accelerator_valid(keyval, mods)) {
+      return Gdk.EVENT_STOP;
+    }
+
+    const accel = Gtk.accelerator_name(keyval, mods);
+    onDone(accel);
+    dialog.close();
+    return Gdk.EVENT_STOP;
   });
   dialog.add_controller(controller);
   dialog.present();
 }
 
-function createConflictChecker() {
-  const conflictIndex = createConflictKeybindingIndex();
-  const findConflicts = (accel) => {
-    return findConflictingKeybindings(
-      conflictIndex,
-      accel,
-      acceleratorsEqual,
-    );
+function createConflictChecker(settings) {
+  const systemIndex = createConflictKeybindingIndex();
+  const conflictIndex = {
+    *[Symbol.iterator]() {
+      yield* systemIndex;
+      yield {
+        settings,
+        keys: COMMAND_DEFINITIONS.map(({ id }) => id),
+        schemaId: "P7 Commands",
+      };
+    },
   };
-  return { findConflicts };
+  return {
+    find: (accelerator, commandId) =>
+      findConflictingKeybindings(
+        conflictIndex,
+        accelerator,
+        acceleratorsEqual,
+      ).filter(({ schemaId, key }) =>
+        schemaId !== "P7 Commands" || key !== commandId
+      ),
+    subscribe: (listener) => systemIndex.subscribe(listener),
+  };
 }
 
-function buildEnumRow(settings, title, subtitle, values, key) {
+function buildEnumRow(
+  ui,
+  title,
+  subtitle,
+  values,
+  key,
+) {
+  const options = [...values];
   const model = new Gtk.StringList();
-  for (const value of values) {
+  for (const value of options) {
     model.append(value);
   }
 
@@ -135,144 +274,117 @@ function buildEnumRow(settings, title, subtitle, values, key) {
     model,
   });
 
-  const current = settings.get_string(key);
-  const currentIndex = values.indexOf(current);
-  row.set_selected(currentIndex >= 0 ? currentIndex : 0);
-
-  row.connect("notify::selected", () => {
-    const selected = row.get_selected();
-    const value = values[selected] ?? values[0];
-    settings.set_string(key, value);
-  });
+  ui.sync(
+    key,
+    row,
+    "notify::selected",
+    () => ui.settings.get_string(key).trim(),
+    (stored) => {
+      const current = options.includes(stored.toUpperCase())
+        ? stored.toUpperCase()
+        : stored;
+      let index = options.indexOf(current);
+      if (index < 0 && /^\d+$/.test(current)) {
+        index = options.push(current) - 1;
+        model.append(current);
+      }
+      row.set_selected(Math.max(0, index));
+    },
+    () =>
+      ui.settings.set_string(key, options[row.get_selected()] ?? options[0]),
+  );
 
   return row;
 }
 
 function buildKeybindingGroup(
-  settings,
+  ui,
   command,
-  registerSettingsChange,
-  parent,
   conflictChecker,
 ) {
+  const { settings } = ui;
   const group = new Adw.PreferencesGroup({
     title: command.title,
     description: command.description,
   });
-  const rows = [];
-
-  const clearRows = () => {
-    for (const row of rows) {
-      group.remove(row);
-    }
-    rows.length = 0;
-  };
-
-  const addRowWidget = (row) => {
-    group.add(row);
-    rows.push(row);
-  };
-
+  const rows = createRowList(group);
   const conflictRow = new Adw.ActionRow({
     title: "Conflicting shortcuts",
     subtitle: "",
   });
+  const update = (callback) =>
+    settings.set_strv(command.id, callback(settings.get_strv(command.id)));
+  const capture = (updateBindings) =>
+    captureShortcut(
+      ui.window,
+      (accelerator) =>
+        update((bindings) => updateBindings(bindings, accelerator)),
+    );
 
   const refresh = () => {
-    clearRows();
-
-    const bindings = settings.get_strv(command.id) ?? [];
+    rows.clear();
+    const bindings = settings.get_strv(command.id);
 
     bindings.forEach((binding, index) => {
-      const row = new Adw.ActionRow({
-        title: `Shortcut ${index + 1}`,
-      });
-
-      const shortcutLabel = new Gtk.ShortcutLabel({
-        accelerator: binding,
-        valign: Gtk.Align.CENTER,
-      });
-
-      const setButton = new Gtk.Button({
-        label: "Set",
-        valign: Gtk.Align.CENTER,
-      });
-
-      const removeButton = new Gtk.Button({
-        label: "Remove",
-        valign: Gtk.Align.CENTER,
-      });
-
-      setButton.connect("clicked", () => {
-        captureShortcut(parent, (accel) => {
-          const current = settings.get_strv(command.id) ?? [];
-          settings.set_strv(
-            command.id,
-            replaceKeybinding(current, index, accel),
-          );
-        });
-      });
-
-      removeButton.connect("clicked", () => {
-        const current = settings.get_strv(command.id) ?? [];
-        const updated = current.filter((_accel, i) => i !== index);
-        settings.set_strv(command.id, updated);
-      });
-
-      row.add_suffix(shortcutLabel);
-      row.add_suffix(setButton);
-      row.add_suffix(removeButton);
-      addRowWidget(row);
+      rows.add(
+        withSuffix(
+          new Adw.ActionRow({ title: `Shortcut ${index + 1}` }),
+          new Gtk.ShortcutLabel({
+            accelerator: binding,
+            valign: Gtk.Align.CENTER,
+          }),
+          button(
+            "Set",
+            () =>
+              capture((current, accelerator) =>
+                replaceKeybinding(current, index, accelerator)
+              ),
+          ),
+          button(
+            "Remove",
+            () =>
+              update((current) => current.filter((_accel, i) => i !== index)),
+          ),
+        ),
+      );
     });
 
-    const addRow = new Adw.ActionRow({
-      title: "Add shortcut",
-    });
-    const addButton = new Gtk.Button({
-      label: "Add",
-      valign: Gtk.Align.CENTER,
-    });
-    addButton.connect("clicked", () => {
-      captureShortcut(parent, (accel) => {
-        const current = settings.get_strv(command.id) ?? [];
-        const updated = addKeybinding(current, accel);
-        settings.set_strv(command.id, updated);
-      });
-    });
-    addRow.add_suffix(addButton);
-    addRowWidget(addRow);
+    rows.add(
+      withSuffix(
+        new Adw.ActionRow({ title: "Add shortcut" }),
+        button(
+          "Add",
+          () =>
+            capture((current, accelerator) =>
+              addKeybinding(current, accelerator)
+            ),
+        ),
+      ),
+    );
 
-    if (conflictChecker) {
-      const details = [];
-      const seen = new Set();
-      for (const binding of bindings) {
-        const conflicts = conflictChecker.findConflicts(binding);
-        for (const conflict of conflicts) {
-          const label = `${binding} -> ${conflict.schemaId}::${conflict.key}`;
-          if (!seen.has(label)) {
-            seen.add(label);
-            details.push(label);
-          }
-        }
-      }
-      if (details.length > 0) {
-        conflictRow.set_subtitle(
-          `Already used by system shortcuts: ${details.join(", ")}`,
-        );
-        addRowWidget(conflictRow);
-      }
+    const seen = new Set(
+      bindings.flatMap((binding) =>
+        conflictChecker.find(binding, command.id).map(
+          ({ schemaId, key }) => `${binding} -> ${schemaId}::${key}`,
+        )
+      ),
+    );
+    if (seen.size > 0) {
+      conflictRow.set_subtitle(`Already used by: ${[...seen].join(", ")}`);
+      rows.add(conflictRow);
     }
   };
 
   refresh();
-  registerSettingsChange(command.id, refresh);
+  for (const definition of COMMAND_DEFINITIONS) {
+    ui.watch(definition.id, refresh);
+  }
 
-  return group;
+  return { group, refresh };
 }
 
 function buildSpinRow({
-  settings,
-  registerSettingsChange,
+  ui,
   key,
   title,
   subtitle,
@@ -283,136 +395,66 @@ function buildSpinRow({
   step,
   onChange,
 }) {
-  const row = new Adw.ActionRow({ title, subtitle: subtitle ?? null });
-  const adjustment = new Gtk.Adjustment({
-    lower: min,
-    upper: max,
-    step_increment: step,
-    page_increment: step,
-  });
-  const spin = new Gtk.SpinButton({
-    adjustment,
+  const row = new Adw.SpinRow({
+    title,
+    subtitle: subtitle ?? null,
+    adjustment: new Gtk.Adjustment({
+      lower: min,
+      upper: max,
+      step_increment: step,
+      page_increment: step,
+    }),
     digits,
     numeric: true,
   });
-  spin.set_valign(Gtk.Align.CENTER);
 
-  let settingValue = false;
-  const applyValue = (nextValue) => {
-    settingValue = true;
-    spin.set_value(nextValue ?? min);
-    settingValue = false;
-  };
-
-  if (settings && key && registerSettingsChange) {
-    applyValue(settings.get_int(key));
-    registerSettingsChange(key, () => {
-      applyValue(settings.get_int(key));
-    });
+  if (ui && key) {
+    ui.sync(
+      key,
+      row,
+      "notify::value",
+      () => ui.settings.get_int(key),
+      (value) => row.set_value(value),
+      () => ui.settings.set_int(key, Math.round(row.get_value())),
+    );
   } else {
-    applyValue(value);
+    row.set_value(value ?? min);
+    row.connect("notify::value", () => onChange?.(row.get_value()));
   }
-
-  spin.connect("value-changed", () => {
-    if (settingValue) {
-      return;
-    }
-    const nextValue = spin.get_value();
-    if (settings && key) {
-      settings.set_int(key, Math.round(nextValue));
-      return;
-    }
-    onChange?.(nextValue);
-  });
-
-  row.add_suffix(spin);
   return row;
 }
 
-function getDefaultString(settings, key) {
-  const defaultValue = settings.get_default_value(key);
-  if (!defaultValue) {
-    return "";
-  }
-  const value = defaultValue.deepUnpack?.();
-  return typeof value === "string" ? value : "";
-}
-
-function parseRgba(value, fallback) {
-  const rgba = new Gdk.RGBA();
-  const normalized = typeof value === "string" && value.trim()
-    ? value.trim()
-    : "";
-  if (normalized && rgba.parse(normalized)) {
-    return rgba;
-  }
-  const fallbackValue = typeof fallback === "string" && fallback.trim()
-    ? fallback.trim()
-    : "";
-  if (fallbackValue) {
-    rgba.parse(fallbackValue);
-  }
-  return rgba;
-}
-
 function buildColorRow({
-  settings,
-  registerSettingsChange,
+  ui,
   title,
   subtitle,
   key,
-  withAlpha,
 }) {
-  const row = new Adw.EntryRow({ title });
-  if (subtitle) {
-    row.set_tooltip_text(subtitle);
-  }
-  const dialog = new Gtk.ColorDialog({
-    with_alpha: withAlpha === true,
+  const { settings } = ui;
+  const row = new Adw.EntryRow({ title, tooltip_text: subtitle ?? null });
+  const colorButton = new Gtk.ColorDialogButton({
+    dialog: new Gtk.ColorDialog({ with_alpha: true }),
+    valign: Gtk.Align.CENTER,
   });
-  const button = new Gtk.ColorDialogButton({ dialog });
-  button.set_valign(Gtk.Align.CENTER);
-  row.add_suffix(button);
-  row.activatable_widget = button;
+  row.add_suffix(colorButton);
+  row.activatable_widget = colorButton;
 
-  const defaultValue = getDefaultString(settings, key);
+  const defaultValue = settings.get_default_value(key).deepUnpack();
   let settingColor = false;
-
-  const applyFromSettings = () => {
+  const syncColor = () => {
     settingColor = true;
-    const value = settings.get_string(key);
-    row.text = value;
-    button.set_rgba(parseRgba(value, defaultValue));
+    const color = new Gdk.RGBA();
+    if (!color.parse(row.text)) color.parse(defaultValue);
+    colorButton.set_rgba(color);
     settingColor = false;
   };
+  ui.bind(key, row, "text");
+  row.connect("notify::text", syncColor);
+  syncColor();
 
-  applyFromSettings();
-  registerSettingsChange(key, applyFromSettings);
-
-  row.connect("notify::text", () => {
-    if (settingColor) {
-      return;
-    }
-    const value = row.text;
-    settings.set_string(key, value);
-    settingColor = true;
-    button.set_rgba(parseRgba(value, defaultValue));
-    settingColor = false;
-  });
-
-  button.connect("notify::rgba", () => {
-    if (settingColor) {
-      return;
-    }
-    const rgba = button.get_rgba();
-    if (!rgba) {
-      return;
-    }
-    const value = rgba.to_string();
-    settingColor = true;
-    row.text = value;
-    settingColor = false;
-    settings.set_string(key, value);
+  colorButton.connect("notify::rgba", () => {
+    if (settingColor) return;
+    row.text = colorButton.get_rgba().to_string();
   });
 
   return row;
@@ -424,147 +466,115 @@ function updateScaleSpinIncrements(spin, adjustment) {
   adjustment.set_page_increment(increment);
 }
 
-function configureCompactSpin(spin, widthChars = 6) {
-  spin.set_valign(Gtk.Align.CENTER);
-  spin.set_width_chars(widthChars);
-  spin.set_max_width_chars(widthChars);
-}
-
-function configureCompactButton(button) {
-  button.set_valign(Gtk.Align.CENTER);
-  button.set_halign(Gtk.Align.END);
-}
-
-function buildScaleRow(scale, index, onChange, onRemove) {
-  if (!Array.isArray(scale)) {
-    scale = [0.8, 0.8];
-  }
-  const widthValue = typeof scale[0] === "number" ? scale[0] : 0.8;
-  const heightValue = scale.length > 1 ? scale[1] : 0.8;
-  const autoHeight = heightValue === null;
-
-  const row = new Adw.ActionRow({
-    title: `Scale ${index + 1}`,
+function buildScaleRow(scale, onChange, onRemove) {
+  const autoHeight = scale[1] === null;
+  const updating = [false, false];
+  const controls = [0, 1].map((axis) => {
+    const spin = buildSpinRow({
+      title: axis === 0 ? "Width" : "Height",
+      value: scale[axis] ?? 0.8,
+      digits: 2,
+      min: 0.1,
+      max: 10000,
+      step: 0.1,
+      onChange: (next) => {
+        if (updating[axis]) return;
+        updating[axis] = true;
+        const value = normalizeScaleSpinValue(next, scale[axis]);
+        if (value !== spin.get_value()) spin.set_value(value);
+        const adjustment = spin.get_adjustment();
+        updateScaleSpinIncrements(spin, adjustment);
+        scale[axis] = value;
+        updating[axis] = false;
+        onChange();
+      },
+    });
+    const adjustment = spin.get_adjustment();
+    updateScaleSpinIncrements(spin, adjustment);
+    return { spin, adjustment };
   });
+  const height = controls[1];
+  height.spin.set_sensitive(!autoHeight);
+  const row = new Adw.ExpanderRow({ title: "Scale" });
+  row.add_suffix(button("Remove", onRemove, { halign: Gtk.Align.END }));
+  row.add_row(controls[0].spin);
 
-  const widthAdjustment = new Gtk.Adjustment({
-    lower: 0.1,
-    upper: 10000,
-    step_increment: 0.1,
-    page_increment: 0.1,
-  });
-
-  const widthSpin = new Gtk.SpinButton({
-    adjustment: widthAdjustment,
-    digits: 2,
-    numeric: true,
-    snap_to_ticks: false,
-  });
-  configureCompactSpin(widthSpin);
-  widthSpin.set_value(widthValue);
-
-  const heightAdjustment = new Gtk.Adjustment({
-    lower: 0.1,
-    upper: 10000,
-    step_increment: 0.1,
-    page_increment: 0.1,
-  });
-
-  const heightSpin = new Gtk.SpinButton({
-    adjustment: heightAdjustment,
-    digits: 2,
-    numeric: true,
-    snap_to_ticks: false,
-  });
-  configureCompactSpin(heightSpin);
-  heightSpin.set_value(typeof heightValue === "number" ? heightValue : 0.8);
-  heightSpin.set_sensitive(!autoHeight);
-
-  updateScaleSpinIncrements(widthSpin, widthAdjustment);
-  updateScaleSpinIncrements(heightSpin, heightAdjustment);
-
-  let settingWidthValue = false;
-  let settingHeightValue = false;
-
-  const autoHeightToggle = new Gtk.CheckButton({
-    label: "Auto",
+  const autoHeightToggle = new Adw.SwitchRow({
+    title: "Automatic height",
     active: autoHeight,
   });
-  autoHeightToggle.set_valign(Gtk.Align.CENTER);
-
-  const removeButton = new Gtk.Button({
-    label: "Remove",
-  });
-  configureCompactButton(removeButton);
-
-  const controlBox = new Gtk.Box({
-    orientation: Gtk.Orientation.VERTICAL,
-    spacing: 6,
-  });
-  controlBox.set_halign(Gtk.Align.END);
-  controlBox.set_valign(Gtk.Align.CENTER);
-
-  const sizeGrid = new Gtk.Grid({ column_spacing: 6, row_spacing: 6 });
-  sizeGrid.attach(new Gtk.Label({ label: "Width", xalign: 1 }), 0, 0, 1, 1);
-  sizeGrid.attach(widthSpin, 1, 0, 1, 1);
-  sizeGrid.attach(new Gtk.Label({ label: "Height", xalign: 1 }), 0, 1, 1, 1);
-  sizeGrid.attach(heightSpin, 1, 1, 1, 1);
-  controlBox.append(sizeGrid);
-
-  const actions = new Gtk.Box({ spacing: 6, halign: Gtk.Align.END });
-  actions.append(autoHeightToggle);
-  actions.append(removeButton);
-  controlBox.append(actions);
-  row.add_suffix(controlBox);
-
-  widthSpin.connect("value-changed", () => {
-    if (settingWidthValue) {
-      return;
-    }
-    settingWidthValue = true;
-    const value = normalizeScaleSpinValue(widthSpin.get_value(), scale[0]);
-    if (value !== widthSpin.get_value()) {
-      widthSpin.set_value(value);
-    }
-    updateScaleSpinIncrements(widthSpin, widthAdjustment);
-    scale[0] = value;
-    settingWidthValue = false;
-    onChange();
-  });
-  heightSpin.connect("value-changed", () => {
-    if (settingHeightValue) {
-      return;
-    }
-    settingHeightValue = true;
-    const value = normalizeScaleSpinValue(heightSpin.get_value(), scale[1]);
-    if (value !== heightSpin.get_value()) {
-      heightSpin.set_value(value);
-    }
-    updateScaleSpinIncrements(heightSpin, heightAdjustment);
-    scale[1] = value;
-    settingHeightValue = false;
-    onChange();
-  });
-  autoHeightToggle.connect("toggled", () => {
+  autoHeightToggle.connect("notify::active", () => {
     if (autoHeightToggle.get_active()) {
       scale[1] = null;
-      heightSpin.set_sensitive(false);
+      height.spin.set_sensitive(false);
     } else {
-      const value = normalizeScaleSpinValue(heightSpin.get_value(), scale[1]);
-      if (value !== heightSpin.get_value()) {
-        settingHeightValue = true;
-        heightSpin.set_value(value);
-        settingHeightValue = false;
-      }
-      updateScaleSpinIncrements(heightSpin, heightAdjustment);
+      const value = normalizeScaleSpinValue(height.spin.get_value(), scale[1]);
+      updating[1] = true;
+      height.spin.set_value(value);
+      updating[1] = false;
+      updateScaleSpinIncrements(height.spin, height.adjustment);
       scale[1] = value;
-      heightSpin.set_sensitive(true);
+      height.spin.set_sensitive(true);
     }
     onChange();
   });
-  removeButton.connect("clicked", onRemove);
-
+  row.add_row(autoHeightToggle);
+  row.add_row(height.spin);
   return row;
+}
+
+function buildEditableList({
+  items,
+  addRow,
+  removeRow,
+  buildRow,
+  createItem,
+  itemTitle,
+  addTitle,
+  onChange,
+}) {
+  const rows = [];
+  const updateTitles = () => {
+    rows.forEach((row, index) => {
+      row.set_title(itemTitle(index));
+    });
+  };
+  const addItem = (item) => {
+    const row = buildRow(item, () => {
+      const index = rows.indexOf(row);
+      if (index < 0) return;
+      items.splice(index, 1);
+      rows.splice(index, 1);
+      removeRow(row);
+      updateTitles();
+      onChange();
+    });
+    rows.push(row);
+    return row;
+  };
+
+  items.forEach((item) => {
+    addRow(addItem(item));
+  });
+
+  const addAction = new Adw.ActionRow({ title: addTitle });
+  const addButton = button(
+    "Add",
+    () => {
+      const item = createItem();
+      items.push(item);
+      const row = addItem(item);
+      removeRow(addAction);
+      addRow(row);
+      addRow(addAction);
+      updateTitles();
+      onChange();
+    },
+    { halign: Gtk.Align.END },
+  );
+  addAction.add_suffix(addButton);
+  addRow(addAction);
+  updateTitles();
 }
 
 function buildScaleList({
@@ -572,64 +582,27 @@ function buildScaleList({
   addRow,
   removeRow,
   saveConfig,
-  addRowTitle,
+  addRowTitle = "Add scale",
 }) {
-  const scaleRows = [];
-  const updateScaleTitles = () => {
-    scaleRows.forEach((row, index) => {
-      row.set_title(`Scale ${index + 1}`);
-    });
-  };
-  const addScaleRowWidget = (scale) => {
-    const row = buildScaleRow(scale, scaleRows.length, saveConfig, () => {
-      const rowIndex = scaleRows.indexOf(row);
-      if (rowIndex < 0) {
-        return;
-      }
-      scales.splice(rowIndex, 1);
-      scaleRows.splice(rowIndex, 1);
-      removeRow(row);
-      updateScaleTitles();
-      saveConfig();
-    });
-    scaleRows.push(row);
-    return row;
-  };
-
-  scales.forEach((scale, index) => {
-    if (!Array.isArray(scale)) {
-      scales[index] = [0.8, 0.8];
-      scale = scales[index];
-    }
-    addRow(addScaleRowWidget(scale));
+  buildEditableList({
+    items: scales,
+    addRow,
+    removeRow,
+    buildRow: (scale, remove) => buildScaleRow(scale, saveConfig, remove),
+    createItem: () => [0.8, 0.8],
+    itemTitle: (index) => `Scale ${index + 1}`,
+    addTitle: addRowTitle,
+    onChange: saveConfig,
   });
-
-  const addScaleRow = new Adw.ActionRow({ title: addRowTitle ?? "Add scale" });
-  const addScaleButton = new Gtk.Button({ label: "Add" });
-  configureCompactButton(addScaleButton);
-  addScaleButton.connect("clicked", () => {
-    const scale = [0.8, 0.8];
-    scales.push(scale);
-    const row = addScaleRowWidget(scale);
-    removeRow(addScaleRow);
-    addRow(row);
-    addRow(addScaleRow);
-    updateScaleTitles();
-    saveConfig();
-  });
-  addScaleRow.add_suffix(addScaleButton);
-  addRow(addScaleRow);
-  updateScaleTitles();
 }
 
-function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
+function buildWinOptsizeConfigGroup(ui) {
+  const { settings } = ui;
   const configGroup = new Adw.PreferencesGroup();
 
-  const rows = [];
-  let lastSerialized = null;
+  const rows = createRowList(configGroup);
   let jsonDirty = false;
   let settingJson = false;
-  let saveTimeoutId = null;
   const jsonGroup = new Adw.PreferencesGroup();
   const jsonErrorRow = new Adw.ActionRow({
     title: "JSON error",
@@ -643,35 +616,41 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
     editable: true,
     monospace: true,
     wrap_mode: Gtk.WrapMode.NONE,
+    hexpand: true,
+    vexpand: true,
   });
-  jsonView.set_hexpand(true);
-  jsonView.set_vexpand(true);
   const jsonScroll = new Gtk.ScrolledWindow({
     hscrollbar_policy: Gtk.PolicyType.AUTOMATIC,
     min_content_height: 160,
+    hexpand: true,
+    vexpand: true,
+    child: jsonView,
   });
-  jsonScroll.set_hexpand(true);
-  jsonScroll.set_vexpand(true);
-  jsonScroll.set_child(jsonView);
-  const jsonRow = new Adw.PreferencesRow();
-  jsonRow.set_child(jsonScroll);
-  jsonRow.set_hexpand(true);
-  jsonRow.set_vexpand(true);
-  let config = parseWinOptsizeConfig(settings.get_string("win-optsize-config"))
-    .value ?? cloneWinOptsizeConfig();
-  const applyButton = new Gtk.Button({ label: "Apply" });
+  const jsonRow = new Adw.PreferencesRow({
+    child: jsonScroll,
+    hexpand: true,
+    vexpand: true,
+  });
+  const loadConfig = () =>
+    parseWinOptsizeConfig(settings.get_string(SETTING_KEYS.winOptsizeConfig));
+  let config = loadConfig().value ?? cloneWinOptsizeConfig();
+  const applyButton = new Gtk.Button({
+    label: "Apply",
+    css_classes: ["suggested-action"],
+  });
   const reloadButton = new Gtk.Button({ label: "Reload" });
-  applyButton.set_sensitive(false);
-  reloadButton.set_sensitive(false);
+  const markJsonDirty = (dirty) => {
+    jsonDirty = dirty;
+    applyButton.set_sensitive(dirty);
+    reloadButton.set_sensitive(dirty);
+    jsonErrorRow.set_visible(false);
+  };
 
   const setJsonText = (text) => {
     settingJson = true;
     jsonBuffer.set_text(text, -1);
     settingJson = false;
-    jsonDirty = false;
-    applyButton.set_sensitive(false);
-    reloadButton.set_sensitive(false);
-    jsonErrorRow.set_visible(false);
+    markJsonDirty(false);
   };
 
   const getJsonText = () => {
@@ -679,86 +658,63 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
     return jsonBuffer.get_text(start, end, false);
   };
 
-  const clearRows = () => {
-    for (const row of rows) {
-      configGroup.remove(row);
-    }
-    rows.length = 0;
-  };
-
-  const addRow = (row) => {
-    configGroup.add(row);
-    rows.push(row);
-  };
-
-  const removeRow = (row) => {
-    const index = rows.indexOf(row);
-    if (index >= 0) {
-      rows.splice(index, 1);
-    }
-    configGroup.remove(row);
-  };
-
-  const serializeConfig = (currentConfig) =>
-    JSON.stringify(currentConfig, null, 2);
-
-  const saveConfigNow = () => {
-    const serialized = serializeConfig(config);
-    lastSerialized = serialized;
-    settings.set_string("win-optsize-config", serialized);
-    if (!jsonDirty) {
-      setJsonText(serialized);
+  const serializeConfig = () => JSON.stringify(config, null, 2);
+  const syncJsonFromSettings = (loaded = loadConfig()) => {
+    setJsonText(
+      loaded.ok
+        ? JSON.stringify(loaded.value, null, 2)
+        : settings.get_string(SETTING_KEYS.winOptsizeConfig),
+    );
+    if (!loaded.ok) {
+      jsonErrorRow.set_subtitle(loaded.error);
+      jsonErrorRow.set_visible(true);
     }
   };
 
-  const scheduleSaveConfig = () => {
-    if (saveTimeoutId) {
-      GLib.Source.remove(saveTimeoutId);
-    }
-    saveTimeoutId = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 250, () => {
-      saveTimeoutId = null;
-      saveConfigNow();
-      return GLib.SOURCE_REMOVE;
-    });
+  const saveConfigNow = (syncJson = !jsonDirty) => {
+    const serialized = serializeConfig();
+    settings.set_string(SETTING_KEYS.winOptsizeConfig, serialized);
+    if (syncJson) setJsonText(serialized);
   };
+
+  const saveConfig = () => saveConfigNow();
 
   const buildBreakpointRow = (breakpoint, onRemove) => {
-    const expander = new Adw.ExpanderRow({
-      title: "Breakpoint",
-    });
+    const expander = new Adw.ExpanderRow({ title: "Breakpoint" });
+    const updateSubtitle = () => {
+      const height = breakpoint.maxHeight == null
+        ? "any height"
+        : `height ≤ ${breakpoint.maxHeight}px`;
+      expander.set_subtitle(`Width ≤ ${breakpoint.maxWidth}px, ${height}`);
+    };
 
-    const removeButton = new Gtk.Button({ label: "Remove" });
-    configureCompactButton(removeButton);
-    removeButton.connect("clicked", onRemove);
-    expander.add_suffix(removeButton);
+    expander.add_suffix(button("Remove", onRemove, { halign: Gtk.Align.END }));
 
-    const maxWidthRow = buildSpinRow({
-      title: "Max width",
-      value: breakpoint.maxWidth ?? 1920,
-      digits: 0,
-      min: 320,
-      max: 10000,
-      step: 10,
-      onChange: (value) => {
-        breakpoint.maxWidth = Math.round(value);
-        scheduleSaveConfig();
-      },
-    });
-    expander.add_row(maxWidthRow);
-
-    const hasMaxHeight = typeof breakpoint.maxHeight === "number";
-    const maxHeightRow = buildSpinRow({
-      title: "Max height",
-      value: hasMaxHeight ? breakpoint.maxHeight : 1080,
-      digits: 0,
-      min: 320,
-      max: 10000,
-      step: 10,
-      onChange: (value) => {
-        breakpoint.maxHeight = Math.round(value);
-        scheduleSaveConfig();
-      },
-    });
+    const hasMaxHeight = breakpoint.maxHeight != null;
+    const dimensionRow = (title, value, property) =>
+      buildSpinRow({
+        title,
+        value,
+        digits: 0,
+        min: 320,
+        max: 10000,
+        step: 10,
+        onChange: (next) => {
+          breakpoint[property] = Math.round(next);
+          updateSubtitle();
+          saveConfig();
+        },
+      });
+    const maxWidthRow = dimensionRow(
+      "Max width",
+      breakpoint.maxWidth,
+      "maxWidth",
+    );
+    const maxHeightRow = dimensionRow(
+      "Max height",
+      hasMaxHeight ? breakpoint.maxHeight : 1080,
+      "maxHeight",
+    );
     maxHeightRow.set_sensitive(hasMaxHeight);
 
     const maxHeightToggle = new Adw.SwitchRow({
@@ -766,156 +722,100 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
       active: hasMaxHeight,
     });
     maxHeightToggle.connect("notify::active", () => {
-      if (maxHeightToggle.get_active()) {
-        breakpoint.maxHeight = Math.round(
-          typeof breakpoint.maxHeight === "number"
-            ? breakpoint.maxHeight
-            : 1080,
-        );
-        maxHeightRow.set_sensitive(true);
-      } else {
-        breakpoint.maxHeight = null;
-        maxHeightRow.set_sensitive(false);
-      }
-      scheduleSaveConfig();
+      const active = maxHeightToggle.get_active();
+      breakpoint.maxHeight = active
+        ? Math.round(breakpoint.maxHeight ?? 1080)
+        : null;
+      maxHeightRow.set_sensitive(active);
+      updateSubtitle();
+      saveConfig();
     });
 
+    expander.add_row(maxWidthRow);
     expander.add_row(maxHeightToggle);
     expander.add_row(maxHeightRow);
-
-    const scalesHeader = new Adw.ActionRow({ title: "Scales" });
-    expander.add_row(scalesHeader);
+    expander.add_row(new Adw.ActionRow({ title: "Scales" }));
 
     const scales = breakpoint.scales ?? [];
     breakpoint.scales = scales;
     buildScaleList({
       scales,
       addRow: (row) => expander.add_row(row),
-      removeRow: (row) => {
-        const parent = row.get_parent();
-        if (parent && typeof parent.remove === "function") {
-          parent.remove(row);
-        }
-      },
-      saveConfig: scheduleSaveConfig,
+      removeRow: (row) => row.get_parent()?.remove?.(row),
+      saveConfig,
     });
 
+    updateSubtitle();
     return expander;
   };
 
   const render = () => {
-    clearRows();
-    config = parseWinOptsizeConfig(settings.get_string("win-optsize-config"))
-      .value ?? cloneWinOptsizeConfig();
-    if (!jsonDirty) {
-      setJsonText(serializeConfig(config));
-    }
+    rows.clear();
+    const loaded = loadConfig();
+    config = loaded.value ?? cloneWinOptsizeConfig();
+    if (!jsonDirty) syncJsonFromSettings(loaded);
 
     // Aspect-based inversion toggle
     const aspectRow = new Adw.SwitchRow({
       title: "Enable aspect-based inversion",
       subtitle: "Invert width/height for portrait screens",
-      active: !!config.aspectBasedInversion,
+      active: config.aspectBasedInversion,
     });
     aspectRow.connect("notify::active", () => {
       config.aspectBasedInversion = aspectRow.get_active();
-      scheduleSaveConfig();
+      saveConfig();
     });
-    addRow(aspectRow);
+    rows.add(aspectRow);
 
-    addRow(
+    rows.add(
       new Adw.ActionRow({
-        title: "Default scales",
-        subtitle: "Relative to screen size when ≤1. Exact pixels when >1",
+        title: "Fallback scales",
+        subtitle:
+          "Used only when no breakpoint matches. Values ≤1 are relative; values >1 are pixels",
       }),
     );
 
-    const defaultScales = config.scales;
     buildScaleList({
-      scales: defaultScales,
-      addRow,
-      removeRow,
-      saveConfig: scheduleSaveConfig,
-      addRowTitle: "Add default scale",
+      scales: config.scales,
+      addRow: rows.add,
+      removeRow: rows.remove,
+      saveConfig,
+      addRowTitle: "Add fallback scale",
     });
 
-    addRow(
+    rows.add(
       new Adw.ActionRow({
         title: "Breakpoints",
-        subtitle: "Ordered; first match wins",
+        subtitle:
+          "Ordered; the first matching breakpoint overrides fallback scales",
       }),
     );
 
-    const breakpoints = config.breakpoints;
-    const breakpointRows = [];
-    const updateBreakpointTitles = () => {
-      breakpointRows.forEach((row, index) => {
-        row.set_title(`Breakpoint ${index + 1}`);
-      });
-    };
-    const addBreakpointRowWidget = (breakpoint) => {
-      const row = buildBreakpointRow(breakpoint, () => {
-        const rowIndex = breakpointRows.indexOf(row);
-        if (rowIndex < 0) {
-          return;
-        }
-        breakpoints.splice(rowIndex, 1);
-        breakpointRows.splice(rowIndex, 1);
-        removeRow(row);
-        updateBreakpointTitles();
-        scheduleSaveConfig();
-      });
-      breakpointRows.push(row);
-      return row;
-    };
-
-    breakpoints.forEach((breakpoint) => {
-      addRow(addBreakpointRowWidget(breakpoint));
+    buildEditableList({
+      items: config.breakpoints,
+      addRow: rows.add,
+      removeRow: rows.remove,
+      buildRow: buildBreakpointRow,
+      createItem: () => ({ maxWidth: 1920, scales: [[0.8, 0.8]] }),
+      itemTitle: (index) => `Breakpoint ${index + 1}`,
+      addTitle: "Add breakpoint",
+      onChange: saveConfig,
     });
-    updateBreakpointTitles();
-
-    const addBreakpointRow = new Adw.ActionRow({
-      title: "Add breakpoint",
-    });
-    const addBreakpointButton = new Gtk.Button({ label: "Add" });
-    configureCompactButton(addBreakpointButton);
-    addBreakpointButton.connect("clicked", () => {
-      const breakpoint = {
-        maxWidth: 1920,
-        scales: [[0.8, 0.8]],
-      };
-      breakpoints.push(breakpoint);
-      const row = addBreakpointRowWidget(breakpoint);
-      removeRow(addBreakpointRow);
-      addRow(row);
-      addRow(addBreakpointRow);
-      updateBreakpointTitles();
-      scheduleSaveConfig();
-    });
-    addBreakpointRow.add_suffix(addBreakpointButton);
-    addRow(addBreakpointRow);
   };
 
   render();
-  registerSettingsChange("win-optsize-config", () => {
-    if (settings.get_string("win-optsize-config") === lastSerialized) {
+  ui.watch(SETTING_KEYS.winOptsizeConfig, () => {
+    if (
+      settings.get_string(SETTING_KEYS.winOptsizeConfig) === serializeConfig()
+    ) {
       return;
-    }
-    if (saveTimeoutId) {
-      GLib.Source.remove(saveTimeoutId);
-      saveTimeoutId = null;
     }
     render();
   });
 
   jsonBuffer.connect("changed", () => {
-    if (settingJson) {
-      return;
-    }
-    jsonDirty = true;
-    applyButton.set_sensitive(true);
-    reloadButton.set_sensitive(true);
-    jsonErrorRow.set_visible(false);
+    if (settingJson) return;
+    markJsonDirty(true);
   });
 
   applyButton.connect("clicked", () => {
@@ -926,12 +826,13 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
       return;
     }
     config = result.value;
-    saveConfigNow();
+    saveConfigNow(true);
     render();
+    showToast(ui.window, "Win optsize config applied");
   });
 
   reloadButton.connect("clicked", () => {
-    setJsonText(serializeConfig(config));
+    syncJsonFromSettings();
   });
 
   const jsonActionsRow = new Adw.ActionRow({
@@ -949,8 +850,8 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
   configPage.set_icon_name("preferences-system-symbolic");
   const jsonPage = stack.add_titled(jsonGroup, "json", "JSON");
   jsonPage.set_icon_name("text-x-generic-symbolic");
-  stack.set_hexpand(true);
-  stack.set_vexpand(true);
+  stack.hexpand = true;
+  stack.vexpand = true;
 
   const switcherBar = new Adw.ViewSwitcherBar({
     stack,
@@ -961,58 +862,61 @@ function buildWinOptsizeConfigGroup(settings, registerSettingsChange, _parent) {
     orientation: Gtk.Orientation.VERTICAL,
     spacing: 12,
     hexpand: true,
+    vexpand: true,
   });
-  layout.set_vexpand(true);
   layout.append(stack);
   layout.append(switcherBar);
 
   const wrapperGroup = new Adw.PreferencesGroup({
     title: "Win optsize config",
   });
-  const layoutRow = new Adw.PreferencesRow();
-  layoutRow.set_child(layout);
-  layoutRow.set_vexpand(true);
+  const layoutRow = new Adw.PreferencesRow({ child: layout, vexpand: true });
   wrapperGroup.add(layoutRow);
 
   return wrapperGroup;
 }
 
-function buildWinMouseResizeConfigGroup(settings, registerSettingsChange) {
+function buildWinMouseResizeConfigGroup(ui) {
   const group = new Adw.PreferencesGroup({
     title: "Resize indicator",
     description: "Customize border and background colors for win_mouseresize.",
   });
 
-  group.add(
-    buildColorRow({
-      settings,
-      registerSettingsChange,
-      title: "Border color",
-      subtitle: "CSS color for the resize outline.",
-      key: "win-mouseresize-border-color",
-      withAlpha: true,
-    }),
-  );
-  group.add(
-    buildColorRow({
-      settings,
-      registerSettingsChange,
-      title: "Background color",
-      subtitle: "CSS color for the resize fill.",
-      key: "win-mouseresize-background-color",
-      withAlpha: true,
-    }),
-  );
+  for (
+    const [title, subtitle, key] of [
+      [
+        "Border color",
+        "CSS color for the resize outline.",
+        SETTING_KEYS.winMouseResizeBorderColor,
+      ],
+      [
+        "Background color",
+        "CSS color for the resize fill.",
+        SETTING_KEYS.winMouseResizeBackgroundColor,
+      ],
+    ]
+  ) {
+    group.add(
+      buildColorRow({
+        ui,
+        title,
+        subtitle,
+        key,
+      }),
+    );
+  }
+  const [, borderRange] = ui.settings.settings_schema
+    .get_key(SETTING_KEYS.winMouseResizeBorderSize).get_range().deepUnpack();
+  const [min, max] = borderRange.deepUnpack();
   group.add(
     buildSpinRow({
-      settings,
-      registerSettingsChange,
-      key: "win-mouseresize-border-size",
+      ui,
+      key: SETTING_KEYS.winMouseResizeBorderSize,
       title: "Border size",
       subtitle: "Border thickness in pixels.",
       digits: 0,
-      min: 1,
-      max: 20,
+      min,
+      max,
       step: 1,
     }),
   );
@@ -1020,124 +924,340 @@ function buildWinMouseResizeConfigGroup(settings, registerSettingsChange) {
   return group;
 }
 
-export function fillPreferencesWindow(window, settings) {
-  const conflictChecker = createConflictChecker();
-  let signals = [];
-  const registerSettingsChange = (key, handler) => {
-    const id = settings.connect(`changed::${key}`, handler);
-    signals.push([settings, id]);
-  };
-  window.connect("close-request", () => {
-    for (const [object, id] of signals) {
-      object.disconnect(id);
-    }
-    signals = [];
-    return false;
+function buildFullConfigPage(ui) {
+  const { settings, window } = ui;
+  const page = new Adw.PreferencesPage({
+    title: "Full Config",
+    icon_name: "document-save-symbolic",
   });
+  const fileGroup = new Adw.PreferencesGroup({
+    title: "Import and Export",
+    description: "Transfer every P7 Commands shortcut and command setting.",
+  });
+  const fileRow = new Adw.ActionRow({
+    title: "Full config file",
+    subtitle:
+      "Importing replaces the complete configuration after confirmation.",
+  });
+  const exportButton = button("Export…", null);
+  const importButton = button("Import…", null, {
+    css_classes: ["suggested-action"],
+  });
+  const fileActions = new Gtk.Box({
+    spacing: 8,
+    valign: Gtk.Align.CENTER,
+  });
+  fileActions.append(exportButton);
+  fileActions.append(importButton);
+  fileRow.add_suffix(fileActions);
+  fileGroup.add(fileRow);
+
+  const buffer = new Gtk.TextBuffer();
+  const view = new Gtk.TextView({
+    buffer,
+    editable: true,
+    monospace: true,
+    wrap_mode: Gtk.WrapMode.NONE,
+    hexpand: true,
+    vexpand: true,
+    left_margin: 8,
+    right_margin: 8,
+    top_margin: 8,
+    bottom_margin: 8,
+  });
+  const scroller = new Gtk.ScrolledWindow({
+    child: view,
+    min_content_height: 320,
+    hexpand: true,
+    vexpand: true,
+  });
+  const editorRow = new Adw.PreferencesRow({
+    child: scroller,
+    hexpand: true,
+    vexpand: true,
+  });
+  const editorGroup = new Adw.PreferencesGroup({
+    title: "JSON",
+    description: "Inspect or replace the complete configuration.",
+  });
+  const applyButton = button("Apply", null, {
+    css_classes: ["suggested-action"],
+  });
+  const reloadButton = button("Reload", null);
+  const copyButton = button("Copy", null);
+  const actions = new Gtk.Box({ spacing: 8, valign: Gtk.Align.CENTER });
+  actions.append(copyButton);
+  actions.append(reloadButton);
+  actions.append(applyButton);
+  const actionsRow = new Adw.ActionRow({
+    title: "Full config JSON",
+    subtitle: "Apply validates all fields before changing any setting.",
+  });
+  actionsRow.add_suffix(actions);
+  editorGroup.add(actionsRow);
+  editorGroup.add(editorRow);
+
+  const resetGroup = new Adw.PreferencesGroup({ title: "Reset" });
+  const resetRow = new Adw.ActionRow({
+    title: "Reset all settings",
+    subtitle: "Restore every P7 Commands setting to its schema default.",
+  });
+  const resetButton = button("Reset…", null, {
+    css_classes: ["destructive-action"],
+  });
+  resetRow.add_suffix(resetButton);
+  resetGroup.add(resetRow);
+
+  let settingText = false;
+  let dirty = false;
+  const cancellable = new Gio.Cancellable();
+  ui.cleanup(() => cancellable.cancel());
+  const getText = () => {
+    const [start, end] = buffer.get_bounds();
+    return buffer.get_text(start, end, false);
+  };
+  const setDirty = (value) => {
+    dirty = value;
+    applyButton.set_sensitive(value);
+    reloadButton.set_sensitive(value);
+  };
+  const setText = (config) => {
+    settingText = true;
+    buffer.set_text(JSON.stringify(config, null, 2), -1);
+    settingText = false;
+    setDirty(false);
+  };
+  const read = () => readFullConfig(settings, normalizeAcceleratorKey);
+  const refresh = () => {
+    if (dirty) return;
+    try {
+      setText(read());
+    } catch (error) {
+      showToast(window, `Config error: ${error.message}`);
+    }
+  };
+  const apply = (config, message) => {
+    const saved = replaceFullConfig(settings, config, normalizeAcceleratorKey);
+    setText(saved);
+    showToast(window, message);
+  };
+
+  setDirty(false);
+  refresh();
+  buffer.connect("changed", () => {
+    if (!settingText) setDirty(true);
+  });
+  for (const key of USER_SETTING_KEYS) ui.watch(key, refresh);
+
+  copyButton.connect("clicked", () => {
+    Gdk.Display.get_default().get_clipboard().set(getText());
+    showToast(window, "Full config copied");
+  });
+  reloadButton.connect("clicked", () => {
+    try {
+      setText(read());
+    } catch (error) {
+      showToast(window, `Reload failed: ${error.message}`);
+    }
+  });
+  applyButton.connect("clicked", () => {
+    try {
+      apply(parseFullConfigJson(getText()), "Full config applied");
+    } catch (error) {
+      showToast(window, `Apply failed: ${error.message}`);
+    }
+  });
+
+  const exportConfig = async (file) => {
+    try {
+      const contents = new TextEncoder().encode(
+        `${JSON.stringify(read(), null, 2)}\n`,
+      );
+      requireConfigFileSize(contents.length);
+      await file.replace_contents_async(
+        contents,
+        null,
+        false,
+        Gio.FileCreateFlags.REPLACE_DESTINATION,
+        cancellable,
+      );
+      showToast(window, "Full config exported");
+    } catch (error) {
+      if (!cancellable.is_cancelled()) {
+        showToast(window, `Export failed: ${error.message}`);
+      }
+    }
+  };
+  exportButton.connect("clicked", () => {
+    chooseJsonFile(
+      window,
+      Gtk.FileChooserAction.SAVE,
+      "Export Full Config",
+      (file) => void exportConfig(file),
+      "p7-commands-config.json",
+    );
+  });
+
+  const importConfig = async (file) => {
+    try {
+      const parsed = await readConfigFile(file, cancellable);
+      const result = normalizeFullConfig(parsed, normalizeAcceleratorKey);
+      if (!result.ok) throw new Error(result.error);
+      const config = result.value;
+      const shortcuts = Object.values(config.keybindings).reduce(
+        (total, bindings) => total + bindings.length,
+        0,
+      );
+      const confirmation = new Gtk.MessageDialog({
+        transient_for: window,
+        modal: true,
+        text: "Import this full config?",
+        secondary_text:
+          `${shortcuts} shortcuts, ${config.winOptsize.scales.length} fallback scales, ` +
+          `${config.winOptsize.breakpoints.length} breakpoints.`,
+        buttons: Gtk.ButtonsType.NONE,
+      });
+      confirmation.add_button("Cancel", Gtk.ResponseType.CANCEL);
+      confirmation.add_button("Import", Gtk.ResponseType.ACCEPT);
+      confirmation.connect("response", (dialog, response) => {
+        try {
+          if (response === Gtk.ResponseType.ACCEPT) {
+            apply(config, "Full config imported");
+          }
+        } catch (error) {
+          showToast(window, `Import failed: ${error.message}`);
+        } finally {
+          dialog.destroy();
+        }
+      });
+      confirmation.present();
+    } catch (error) {
+      if (!cancellable.is_cancelled()) {
+        showToast(window, `Import failed: ${error.message}`);
+      }
+    }
+  };
+  importButton.connect("clicked", () => {
+    chooseJsonFile(
+      window,
+      Gtk.FileChooserAction.OPEN,
+      "Import Full Config",
+      (file) => void importConfig(file),
+    );
+  });
+
+  resetButton.connect("clicked", () => {
+    const confirmation = new Gtk.MessageDialog({
+      transient_for: window,
+      modal: true,
+      text: "Reset all P7 Commands settings?",
+      secondary_text:
+        "This replaces every shortcut and command setting with its default.",
+      buttons: Gtk.ButtonsType.NONE,
+    });
+    confirmation.add_button("Cancel", Gtk.ResponseType.CANCEL);
+    confirmation.add_button("Reset", Gtk.ResponseType.ACCEPT);
+    confirmation.connect("response", (dialog, response) => {
+      if (response === Gtk.ResponseType.ACCEPT) {
+        try {
+          for (const key of settings.settings_schema.list_keys()) {
+            settings.reset(key);
+          }
+          setText(read());
+          showToast(window, "All settings reset");
+        } catch (error) {
+          showToast(window, `Reset failed: ${error.message}`);
+        }
+      }
+      dialog.destroy();
+    });
+    confirmation.present();
+  });
+
+  page.add(fileGroup);
+  page.add(editorGroup);
+  page.add(resetGroup);
+  return page;
+}
+
+export function fillPreferencesWindow(window, settings) {
+  const conflictChecker = createConflictChecker(settings);
+  const ui = new PreferencesUi(window, settings);
+  const refreshConflicts = [];
+  ui.cleanup(
+    conflictChecker.subscribe(() => {
+      for (const refresh of refreshConflicts) refresh();
+    }),
+  );
   window.set_default_size(760, 640);
 
   const shortcutsPage = new Adw.PreferencesPage({
-    title: "P7 Commands",
+    title: "General",
     icon_name: "preferences-desktop-keyboard-shortcuts-symbolic",
   });
   window.add(shortcutsPage);
 
   const defaultsGroup = new Adw.PreferencesGroup({
-    title: "Defaults",
+    title: "Shortcut behavior",
   });
-  defaultsGroup.add(
-    buildEnumRow(
-      settings,
-      "Keybinding flags",
-      "Meta.KeyBindingFlags for extension shortcuts",
-      KEYBINDING_FLAG_NAMES,
-      "keybinding-flags",
-    ),
-  );
-  defaultsGroup.add(
-    buildEnumRow(
-      settings,
-      "Action mode",
-      "Shell.ActionMode for extension shortcuts",
-      ACTION_MODE_NAMES,
-      "keybinding-actionmode",
-    ),
-  );
+  for (
+    const row of [
+      [
+        "Keybinding flags",
+        "Meta.KeyBindingFlags for extension shortcuts",
+        KEYBINDING_FLAG_NAMES,
+        SETTING_KEYS.keybindingFlags,
+      ],
+      [
+        "Action mode",
+        "Shell.ActionMode for extension shortcuts",
+        ACTION_MODE_NAMES,
+        SETTING_KEYS.keybindingActionMode,
+      ],
+    ]
+  ) {
+    defaultsGroup.add(buildEnumRow(ui, ...row));
+  }
 
-  const overrideRow = new Adw.SwitchRow({
-    title: "Override conflicting keybindings",
-    subtitle:
-      "Automatically remove conflicting keybindings from system/shell settings and restore on disable; when off, commands with conflicts are skipped",
-  });
-  overrideRow.set_active(
-    settings.get_boolean("override-conflicting-bindings"),
-  );
-  overrideRow.connect("notify::active", () => {
-    settings.set_boolean(
-      "override-conflicting-bindings",
-      overrideRow.get_active(),
+  for (
+    const [key, title, subtitle] of [
+      [
+        SETTING_KEYS.overrideConflictingBindings,
+        "Override conflicting keybindings",
+        "Automatically remove conflicting keybindings from system/shell settings and restore on disable; when off, commands with conflicts are skipped",
+      ],
+      [
+        SETTING_KEYS.verboseLogging,
+        "Verbose logging",
+        "Enable extra logging for troubleshooting",
+      ],
+    ]
+  ) {
+    defaultsGroup.add(
+      ui.bind(key, new Adw.SwitchRow({ title, subtitle }), "active"),
     );
-  });
-  defaultsGroup.add(overrideRow);
-
-  const verboseRow = new Adw.SwitchRow({
-    title: "Verbose logging",
-    subtitle: "Enable extra logging for troubleshooting",
-  });
-  verboseRow.set_active(settings.get_boolean("verbose-logging"));
-  verboseRow.connect("notify::active", () => {
-    settings.set_boolean("verbose-logging", verboseRow.get_active());
-  });
-  defaultsGroup.add(verboseRow);
-
-  const resetRow = new Adw.ActionRow({
-    title: "Reset all settings",
-    subtitle: "Reset all extension settings to schema defaults",
-  });
-  const resetButton = new Gtk.Button({ label: "Reset" });
-  resetButton.connect("clicked", () => {
-    // Reset all keys to schema defaults.
-    const keys = settings.settings_schema.list_keys();
-    for (const key of keys) {
-      settings.reset(key);
-    }
-  });
-  resetRow.add_suffix(resetButton);
-  defaultsGroup.add(resetRow);
+  }
 
   shortcutsPage.add(defaultsGroup);
 
+  const configGroups = {
+    "cmd-win-optsize": () => buildWinOptsizeConfigGroup(ui),
+    "cmd-win-mouseresize": () => buildWinMouseResizeConfigGroup(ui),
+  };
+
   for (const command of COMMAND_DEFINITIONS) {
-    shortcutsPage.add(
-      buildKeybindingGroup(
-        settings,
-        command,
-        registerSettingsChange,
-        window,
-        conflictChecker,
-      ),
-    );
+    const keybindings = buildKeybindingGroup(ui, command, conflictChecker);
+    shortcutsPage.add(keybindings.group);
+    refreshConflicts.push(keybindings.refresh);
 
-    if (command.id === "cmd-win-optsize") {
-      const optsizePage = new Adw.PreferencesPage({
-        title: command.title,
-        icon_name: command.icon,
-      });
-      window.add(optsizePage);
-      optsizePage.add(
-        buildWinOptsizeConfigGroup(settings, registerSettingsChange, window),
-      );
-    }
-
-    if (command.id === "cmd-win-mouseresize") {
-      const mouseResizePage = new Adw.PreferencesPage({
-        title: command.title,
-        icon_name: command.icon,
-      });
-      window.add(mouseResizePage);
-      mouseResizePage.add(
-        buildWinMouseResizeConfigGroup(settings, registerSettingsChange),
-      );
-    }
+    const buildConfig = configGroups[command.id];
+    if (!buildConfig) continue;
+    const page = new Adw.PreferencesPage({
+      title: command.title,
+      icon_name: command.icon,
+    });
+    page.add(buildConfig());
+    window.add(page);
   }
+  window.add(buildFullConfigPage(ui));
 }

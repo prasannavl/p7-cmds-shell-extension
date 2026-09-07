@@ -2,6 +2,12 @@ set -euo pipefail
 
 repo_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_dir"
+test_schema_dir=$(mktemp -d)
+trap 'rm -rf "$test_schema_dir"' EXIT
+cp schemas/org.gnome.shell.extensions.p7-cmds.gschema.xml \
+  tests/fixtures/org.gnome.settings-daemon.plugins.media-keys.gschema.xml \
+  "$test_schema_dir"/
+glib-compile-schemas "$test_schema_dir"
 
 run_test() {
   local label=$1
@@ -54,22 +60,33 @@ without_gi_namespace() {
 
 run_test compat gjs -m tests/compat.test.js
 run_test settings env \
-  GSETTINGS_SCHEMA_DIR="$repo_dir/schemas" \
+  GSETTINGS_SCHEMA_DIR="$test_schema_dir" \
   GSETTINGS_BACKEND=memory \
   gjs -m tests/settings.test.js
 run_test keybindings env \
-  GSETTINGS_SCHEMA_DIR="$repo_dir/schemas" \
+  GSETTINGS_SCHEMA_DIR="$test_schema_dir" \
   GSETTINGS_BACKEND=memory \
   G_RESOURCE_OVERLAYS="/org/gnome/shell=$repo_dir/tests/fixtures/org/gnome/shell" \
   gjs -m tests/keybindmanager.test.js
 run_test commands env \
   G_RESOURCE_OVERLAYS="/org/gnome/shell=$repo_dir/tests/fixtures/org/gnome/shell" \
   gjs -m tests/commands.test.js
-run_output_test prefs-module "preferences module loaded" \
+run_output_test prefs-module "preferences window constructed" \
+  xvfb-run -a env \
+  GSETTINGS_SCHEMA_DIR="$test_schema_dir" \
+  GSETTINGS_BACKEND=memory \
   gjs -m tests/prefs-module.test.js
-run_output_test prefs-module-without-clutter "preferences module loaded" \
-  env GI_TYPELIB_PATH="$(without_gi_namespace Clutter)" \
+run_output_test prefs-module-without-clutter "preferences window constructed" \
+  xvfb-run -a env \
+  GI_TYPELIB_PATH="$(without_gi_namespace Clutter)" \
+  GSETTINGS_SCHEMA_DIR="$test_schema_dir" \
+  GSETTINGS_BACKEND=memory \
   gjs -m tests/prefs-module.test.js
 run_output_test runtime-modules "runtime modules loaded" \
   env G_RESOURCE_OVERLAYS="/org/gnome/shell=$repo_dir/tests/fixtures/org/gnome/shell" \
+  gjs -m tests/runtime-modules.test.js
+run_output_test runtime-modules-without-gdk "runtime modules loaded" \
+  env \
+  GI_TYPELIB_PATH="$(without_gi_namespace Gdk)" \
+  G_RESOURCE_OVERLAYS="/org/gnome/shell=$repo_dir/tests/fixtures/org/gnome/shell" \
   gjs -m tests/runtime-modules.test.js

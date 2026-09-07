@@ -1,18 +1,19 @@
-// cmds/win_mouseresize.js
-
 import Clutter from "gi://Clutter";
 import GLib from "gi://GLib";
 import St from "gi://St";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
+import { isModifiedArrowBinding } from "../common/config.js";
 import {
-  DEFAULT_INDICATOR_BACKGROUND_COLOR,
-  DEFAULT_INDICATOR_BORDER_COLOR,
-  isSuperArrowBinding,
-  normalizeIndicatorBorderSize,
-  resolveIndicatorConfig,
-} from "../common/config.js";
+  cloneRect,
+  computeResizeRect,
+  flipLockedEdges,
+  getPointDelta,
+  hasLockedEdges,
+  lockResizeEdges,
+  MIN_RESIZE_SIZE,
+  preserveResizeAnchors,
+} from "../common/window.js";
 import {
-  acceleratorsEqual,
   connectObjectIfSignal,
   connectWhenWindowRestored,
   getCursorTracker,
@@ -23,724 +24,453 @@ import {
   normalizeWindow,
   setResizeCursor,
 } from "../shell/compat.js";
-import {
-  cloneRect,
-  computeResizeRect as computeResizeRectFromDelta,
-  flipLockedEdges,
-  getPointDelta,
-  hasLockedEdges,
-  lockResizeEdges,
-  MIN_RESIZE_SIZE,
-  preserveResizeAnchors,
-  rectEquals,
-} from "../common/window.js";
-import {
-  createConflictKeybindingIndex,
-  KeybindingOverrideLease,
-} from "../common/keybindings.js";
 
-const KEYBOARD_RESIZE_STEP = 100;
-const STATE_KEY = "cmd-win-mouseresize";
-const CONFLICT_INDEX_KEY = "cmd-win-mouseresize-conflict-index";
+const RESIZE_STEP = 100;
+const RESIZE_DELTAS = new Map([
+  [Clutter.KEY_Left, { x: -RESIZE_STEP, y: 0 }],
+  [Clutter.KEY_KP_Left, { x: -RESIZE_STEP, y: 0 }],
+  [Clutter.KEY_Right, { x: RESIZE_STEP, y: 0 }],
+  [Clutter.KEY_KP_Right, { x: RESIZE_STEP, y: 0 }],
+  [Clutter.KEY_Up, { x: 0, y: -RESIZE_STEP }],
+  [Clutter.KEY_KP_Up, { x: 0, y: -RESIZE_STEP }],
+  [Clutter.KEY_Down, { x: 0, y: RESIZE_STEP }],
+  [Clutter.KEY_KP_Down, { x: 0, y: RESIZE_STEP }],
+]);
+export function createWinMouseResizeCommand(
+  createWidget = (properties) => new St.Widget(properties),
+) {
+  let session = null;
+  return {
+    run(config, logger, runtime, ...args) {
+      if (session) {
+        session.exit("keybinding");
+        return;
+      }
+      const win = getFocusedWindow();
+      if (!win) {
+        logger.verboseLog("win_mouseresize: no focused window");
+        return;
+      }
+      session = new MouseResizeSession(
+        win,
+        config,
+        logger,
+        runtime,
+        getModifierMask(args.at(-1)),
+        createWidget,
+        () => {
+          session = null;
+        },
+      );
+      session.start();
+    },
+    destroy() {
+      session?.end();
+    },
+  };
+}
 
-export function win_mouseresize(stateMap, config, logger) {
-  const state = createState(stateMap);
-  const win = getFocusedWindow();
-  if (!win) {
-    logger.verboseLog("win_mouseresize: no focused window");
-    return;
+class MouseResizeSession {
+  constructor(win, config, logger, runtime, modifierMask, createWidget, onEnd) {
+    Object.assign(this, {
+      win,
+      logger,
+      runtime,
+      modifierMask,
+      createWidget,
+      onEnd,
+    });
+    this.connectedObjects = new Set([win]);
+    this.indicatorConfig = config.winMouseResize;
   }
-  logger.verboseLog("win_mouseresize: enter resize mode");
 
-  state.win = win;
-  state.winId = win.get_id();
-  if (normalizeWindow(win)) {
-    logger.verboseLog(
+  start() {
+    this.logger.verboseLog("win_mouseresize: enter resize mode");
+    if (!normalizeWindow(this.win)) {
+      this._begin();
+      return;
+    }
+    this.logger.verboseLog(
       "win_mouseresize: waiting for restored window before resizing",
     );
     connectWhenWindowRestored(
-      win,
-      state,
-      () => {
-        if (stateMap.get(STATE_KEY) === state) {
-          beginMouseResize(state, config, logger);
-        }
-      },
-      () => end(state),
+      this.win,
+      this,
+      () => this._begin(),
+      () => this.end(),
     );
-    return;
   }
 
-  beginMouseResize(state, config, logger);
-}
-
-function beginMouseResize(state, config, logger) {
-  const win = state.win;
-
-  const exitResize = (reason) => {
-    if (!state.active) {
+  _begin() {
+    this.cursorTracker = getCursorTracker();
+    if (!this.cursorTracker) {
+      this.logger.verboseLog("win_mouseresize: no cursor tracker");
+      this.end();
       return;
     }
-    end(state);
-    logger.verboseLog(`win_mouseresize: exit resize mode (${reason})`);
-  };
-
-  if (!beginModalGrab(state, exitResize)) {
-    logger.verboseLog("win_mouseresize: failed to grab modal input");
-    end(state);
-    return;
-  }
-  suppressSuperArrowBindings(state, logger);
-
-  state.active = true;
-  const indicatorConfig = resolveIndicatorConfig(config);
-  state.indicatorColors = indicatorConfig.colors;
-  state.indicatorBorderSize = indicatorConfig.borderSize;
-  state.edges = null;
-  state.startRect = cloneRect(win.get_frame_rect());
-  state.currentRect = cloneRect(state.startRect);
-  state.minSize = getWindowMinSize(win);
-  state.startPoint = getPointerPoint();
-  state.shiftPressed = hasShiftKeyPressed();
-
-  const handlePointerMove = () => {
-    const point = getPointerPoint();
-
-    if (!ensureLockedEdges(state, point, state.startRect)) {
-      return true;
+    if (!this._grabModal()) {
+      this.logger.verboseLog("win_mouseresize: failed to grab modal input");
+      this.end();
+      return;
     }
 
-    const targetRect = computeResizeRect(
-      state.startRect,
-      state.edges,
-      state.startPoint,
-      point,
-      state.minSize,
+    this.bindingOverride = this.runtime.suppressKeybindings(
+      isModifiedArrowBinding,
     );
-    if (targetRect) {
-      queueResizeRect(state, targetRect, point, "mouse");
+    if (!this.bindingOverride) {
+      this.end();
+      return;
     }
+
+    this.edges = null;
+    this.startRect = cloneRect(this.win.get_frame_rect());
+    this.minSize = this._getMinSize();
+    this.startPoint = this._point();
+    // Shift is edge-triggered, not a held mode. Seed its state so the activation
+    // key and continued hold are ignored; only a later press flips locked edges.
+    this.shiftPressed = this._modifierPressed(Clutter.ModifierType.SHIFT_MASK);
+
+    this._updateIndicator(this.startRect);
+    setResizeCursor(true);
+    this.cursorSet = true;
+    this._connect(
+      this.win,
+      "size-changed",
+      () => this._queueWindowSync(),
+      "position-changed",
+      () => this._queueWindowSync(),
+    );
+    this.cursorTracker.connect(() => this._onPointerMove(), this);
+    this._connectExitSignals();
+  }
+
+  exit(reason) {
+    if (this.ended) return;
+    this.end();
+    this.logger.verboseLog(`win_mouseresize: exit resize mode (${reason})`);
+  }
+
+  end() {
+    if (this.ended) return;
+    this.ended = true;
+    this.bindingOverride?.restore();
+    this._releaseModal();
+    if (this.cursorSet) setResizeCursor(false);
+    for (const object of this.connectedObjects) object.disconnectObject?.(this);
+    this.connectedObjects.clear();
+    this.cursorTracker?.disconnect(this);
+    for (
+      const id of [
+        this.resizeSourceId,
+        this.windowSyncSourceId,
+        this.modifierWatchSourceId,
+      ]
+    ) if (id) GLib.source_remove(id);
+    this.indicator?.destroy();
+    this.win = null;
+    this.onEnd();
+  }
+
+  _point() {
+    const { x, y } = getPointerData();
+    return { x, y };
+  }
+
+  _modifierPressed(mask) {
+    return (getPointerData().modifiers & mask) !== 0;
+  }
+
+  _activationModifierPressed() {
+    return !this.modifierMask ||
+      (getPointerData().modifiers & this.modifierMask) === this.modifierMask;
+  }
+
+  _onPointerMove() {
+    const point = this._point();
+    const delta = getPointDelta(this.startPoint, point);
+    if (!this._lockEdges(delta, this.startPoint, this.startRect)) return true;
+    this._queueResize(
+      computeResizeRect(this.startRect, this.edges, delta, this.minSize),
+      false,
+    );
     return true;
-  };
-
-  setResizeCursor(true);
-  updateResizeIndicator(state, state.startRect);
-
-  const handleWindowRectChange = () => {
-    if (!state.active || !state.win) {
-      return;
-    }
-    const rect = state.win.get_frame_rect?.();
-    if (rect) {
-      const anchoredRect = enforceLastRequestedAnchors(state, rect);
-      syncCurrentRect(state, anchoredRect);
-      queueIndicatorSync(state, anchoredRect);
-    }
-  };
-  state.win.connectObject("size-changed", handleWindowRectChange, state);
-  state.win.connectObject("position-changed", handleWindowRectChange, state);
-
-  const tracker = getCursorTracker();
-  if (!tracker) {
-    logger.verboseLog("win_mouseresize: no cursor tracker");
-    end(state);
-    return;
   }
 
-  state.cursorTracker = tracker;
-  tracker.connect(handlePointerMove, state);
-
-  connectExitSignals(state, exitResize);
-}
-
-export function win_mouseresize_destroy(stateMap) {
-  end(stateMap.get(STATE_KEY));
-}
-
-function end(state) {
-  if (!state) {
-    return;
+  _lockEdges(delta, point, rect) {
+    this.edges = lockResizeEdges(this.edges, delta, point, rect);
+    return hasLockedEdges(this.edges);
   }
-  restoreSuppressedBindings(state);
-  releaseModalGrab(state);
-  if (state.active) setResizeCursor(false);
-  Main.overview?.disconnectObject?.(state);
-  global.workspace_manager?.disconnectObject?.(state);
-  getDisplay()?.disconnectObject?.(state);
-  getMonitorManager()?.disconnectObject?.(state);
-  global.stage?.disconnectObject?.(state);
-  state.cursorTracker?.disconnect(state);
-  state.win?.disconnectObject(state);
-  if (state.resizeSourceId) {
-    GLib.source_remove(state.resizeSourceId);
-  }
-  if (state.indicatorSourceId) {
-    GLib.source_remove(state.indicatorSourceId);
-  }
-  if (state.superWatchSourceId) {
-    GLib.source_remove(state.superWatchSourceId);
-  }
-  state.indicator?.destroy();
-  resetState(state);
-}
 
-// Queue helpers
+  _queueResize(rect, reanchor) {
+    this.pendingResize = { rect, reanchor };
+    this._idle("resizeSourceId", () => {
+      const pending = this.pendingResize;
+      this.pendingResize = null;
+      if (!this.win) return;
 
-function getPointerPoint() {
-  const { x, y } = getPointerData();
-  return { x, y };
-}
-
-function queueResizeRect(state, rect, point, mode) {
-  state.pendingResize = {
-    rect: cloneRect(rect),
-    point: point ? { x: point.x, y: point.y } : null,
-    mode,
-  };
-  if (state.resizeSourceId) {
-    return;
+      this.anchorRequest = pending.rect;
+      this.lastCorrection = null;
+      if (!this._applyRect(pending.rect)) return;
+      // Mutter owns the final geometry; render feedback from its actual frame.
+      this._queueWindowSync();
+      if (pending.reanchor) this._reanchor(this._anchorRect(), this._point());
+    });
   }
-  state.resizeSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-    state.resizeSourceId = 0;
-    const pendingResize = state.pendingResize;
-    state.pendingResize = null;
-    if (!state.active || !state.win || !pendingResize?.rect) {
+
+  _queueWindowSync() {
+    // Shell objects stay on the main thread; defer and coalesce their updates.
+    this._idle("windowSyncSourceId", () => this._syncWindowRect());
+  }
+
+  _idle(property, callback) {
+    if (this[property]) return;
+    this[property] = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+      this[property] = 0;
+      callback();
       return GLib.SOURCE_REMOVE;
-    }
-    state.lastResizeRect = cloneRect(pendingResize.rect);
-    applyResizeRect(state.win, pendingResize.rect);
-    syncCurrentRect(state, pendingResize.rect);
-    queueIndicatorSync(state, pendingResize.rect);
-
-    if (pendingResize.mode === "keyboard") {
-      reanchorMouseResize(state, pendingResize.rect, getPointerPoint());
-    }
-
-    return GLib.SOURCE_REMOVE;
-  });
-}
-
-function queueIndicatorSync(state, rect) {
-  state.pendingRect = cloneRect(rect);
-  if (state.indicatorSourceId) {
-    return;
+    });
   }
-  state.indicatorSourceId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
-    state.indicatorSourceId = 0;
-    if (!state.active || !state.pendingRect) {
-      return GLib.SOURCE_REMOVE;
+
+  _anchorRect() {
+    return this.pendingResize?.rect ?? this.anchorRequest ??
+      cloneRect(this.win.get_frame_rect());
+  }
+
+  _reanchor(rect, point) {
+    this.startRect = rect;
+    this.startPoint = point;
+  }
+
+  _pressShift() {
+    if (this.shiftPressed) return false;
+    // Consume the press even without edges; holding must not affect later locks.
+    this.shiftPressed = true;
+    const edges = flipLockedEdges(this.edges);
+    if (!edges) return false;
+    this.edges = edges;
+    this._reanchor(this._anchorRect(), this._point());
+    return true;
+  }
+
+  _syncShift() {
+    const pressed = this._modifierPressed(Clutter.ModifierType.SHIFT_MASK);
+    if (!pressed) this.shiftPressed = false;
+    return pressed && this._pressShift();
+  }
+
+  _syncWindowRect() {
+    if (!this.win) return;
+    const actual = this.win.get_frame_rect();
+    const corrected = preserveResizeAnchors(
+      actual,
+      this.anchorRequest,
+      this.edges,
+    );
+    const correction = `${actual.x},${actual.y}:${corrected.x},${corrected.y}`;
+    if (
+      (corrected.x !== actual.x || corrected.y !== actual.y) &&
+      correction !== this.lastCorrection
+    ) {
+      // A Wayland resize is only a request until the client acknowledges it.
+      // Move just the frame to preserve locked edges without replacing that
+      // pending size request with Mutter's still-old accepted size.
+      this.lastCorrection = correction;
+      if (!this._moveFrame(corrected)) return;
     }
-    const rect = cloneRect(state.win?.get_frame_rect?.()) ?? state.pendingRect;
-    state.pendingRect = null;
-    updateResizeIndicator(state, rect);
-    return GLib.SOURCE_REMOVE;
-  });
-}
+    this._updateIndicator(this.win.get_frame_rect());
+  }
 
-function syncCurrentRect(state, rect) {
-  state.currentRect = cloneRect(rect);
-}
+  _getMinSize() {
+    const [width, height] = this.win.get_min_size?.() ?? [];
+    const hints = width === undefined ? this.win.get_size_hints?.() : null;
+    return {
+      width: Math.max(MIN_RESIZE_SIZE, width ?? hints?.min_width ?? 0),
+      height: Math.max(MIN_RESIZE_SIZE, height ?? hints?.min_height ?? 0),
+    };
+  }
 
-function reanchorMouseResize(state, rect, point) {
-  state.startRect = cloneRect(rect);
-  state.startPoint = { x: point.x, y: point.y };
-}
+  _applyRect({ x, y, width, height }) {
+    const win = this.win;
+    win.move_resize_frame(true, x, y, width, height);
+    return this.win === win;
+  }
 
-function getResizeAnchorRect(state) {
-  return cloneRect(state.pendingResize?.rect) ?? cloneRect(state.currentRect);
-}
+  _moveFrame({ x, y }) {
+    const win = this.win;
+    win.move_frame(true, x, y);
+    return this.win === win;
+  }
 
-function flipAndReanchor(state) {
-  const flipped = flipLockedEdges(state.edges);
-  if (!flipped) return false;
+  _onKeyPress(symbol) {
+    if (isShift(symbol)) {
+      this._pressShift();
+      return Clutter.EVENT_STOP;
+    }
+    const delta = RESIZE_DELTAS.get(symbol);
+    if (!delta) return Clutter.EVENT_PROPAGATE;
 
-  state.edges = flipped;
-  reanchorMouseResize(state, getResizeAnchorRect(state), getPointerPoint());
-  return true;
-}
+    const point = this._point();
+    const rect = this._anchorRect();
+    this._lockEdges(delta, point, rect);
+    this._queueResize(
+      computeResizeRect(rect, this.edges, delta, this.minSize),
+      true,
+    );
+    return Clutter.EVENT_STOP;
+  }
 
-function handleShiftPress(state) {
-  if (state.shiftPressed) {
+  _onKeyRelease(event) {
+    if (!this._activationModifierPressed()) {
+      this.exit(`event ${event.type()}`);
+      return Clutter.EVENT_STOP;
+    }
+    const symbol = event.get_key_symbol?.();
+    if (isShift(symbol)) {
+      this.shiftPressed = false;
+      return Clutter.EVENT_STOP;
+    }
+    return RESIZE_DELTAS.has(symbol) || symbol === Clutter.KEY_Escape
+      ? Clutter.EVENT_STOP
+      : Clutter.EVENT_PROPAGATE;
+  }
+
+  _grabModal() {
+    const actor = this.createWidget({
+      reactive: true,
+      can_focus: true,
+      opacity: 0,
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+    });
+    actor.connectObject(
+      "key-press-event",
+      (_actor, event) => {
+        const symbol = event.get_key_symbol?.();
+        if (symbol !== Clutter.KEY_Escape) return this._onKeyPress(symbol);
+        this.exit("escape");
+        return Clutter.EVENT_STOP;
+      },
+      "key-release-event",
+      (_actor, event) => this._onKeyRelease(event),
+      this,
+    );
+    Main.uiGroup.add_child(actor);
+    this.modalActor = actor;
+    this.modalGrab = Main.pushModal(actor);
+    if (this.modalGrab) return true;
+    this._releaseModal();
     return false;
   }
-  state.shiftPressed = true;
-  return flipAndReanchor(state);
-}
 
-function syncShiftKeyState(state) {
-  if (hasShiftKeyPressed()) {
-    return handleShiftPress(state);
+  _releaseModal() {
+    if (this.modalGrab) Main.popModal(this.modalGrab);
+    this.modalGrab = null;
+    this.modalActor?.disconnectObject?.(this);
+    this.modalActor?.destroy();
+    this.modalActor = null;
   }
-  state.shiftPressed = false;
-  return false;
-}
 
-function enforceLastRequestedAnchors(state, actualRect) {
-  const anchored = preserveResizeAnchors(
-    actualRect,
-    state.lastResizeRect,
-    state.edges,
-  );
-  if (!rectEquals(anchored, actualRect)) applyResizeRect(state.win, anchored);
-  return anchored;
-}
-
-// Window helpers
-
-function getWindowMinSize(win) {
-  let minWidth = MIN_RESIZE_SIZE;
-  let minHeight = MIN_RESIZE_SIZE;
-  if (win && typeof win.get_min_size === "function") {
-    const [width, height] = win.get_min_size();
-    minWidth = Math.max(MIN_RESIZE_SIZE, width);
-    minHeight = Math.max(MIN_RESIZE_SIZE, height);
-    return { width: minWidth, height: minHeight };
+  _updateIndicator(rect) {
+    const {
+      backgroundColor,
+      borderColor,
+      borderSize: border,
+    } = this.indicatorConfig;
+    if (!this.indicator) {
+      this.indicator = this.createWidget({
+        reactive: false,
+        style:
+          `background-color: ${backgroundColor};border: ${border}px solid ${borderColor};border-radius: 5px;`,
+      });
+      this.indicator.hide();
+      Main.uiGroup.add_child(this.indicator);
+    }
+    this.indicator.set_position(rect.x - border, rect.y - border);
+    this.indicator.set_size(rect.width + border * 2, rect.height + border * 2);
+    this.indicator.show();
   }
-  if (win && typeof win.get_size_hints === "function") {
-    const hints = win.get_size_hints();
-    if (hints) {
-      minWidth = Math.max(MIN_RESIZE_SIZE, hints.min_width ?? minWidth);
-      minHeight = Math.max(MIN_RESIZE_SIZE, hints.min_height ?? minHeight);
+
+  _connectExitSignals() {
+    this._connect(
+      this.win,
+      "unmanaged",
+      () => this.exit("window unmanaged"),
+    );
+    this._connectIf(
+      global.stage,
+      "captured-event",
+      (_actor, event) => {
+        const type = event.type();
+        if (type === Clutter.EventType.KEY_STATE && this._syncShift()) {
+          return Clutter.EVENT_STOP;
+        }
+        if (
+          (type === Clutter.EventType.KEY_RELEASE ||
+            type === Clutter.EventType.KEY_STATE) &&
+          !this._activationModifierPressed()
+        ) {
+          this.exit(`event ${type}`);
+        }
+        return Clutter.EVENT_PROPAGATE;
+      },
+    );
+    this._connectExit(global.workspace_manager, "workspace changed", [
+      "active-workspace-changed",
+    ]);
+    this._connectExit(getMonitorManager(), "monitors changed", [
+      "monitors-changed",
+    ]);
+    this._connectExit(
+      getDisplay(),
+      "focus changed",
+      ["focus-window", "notify::focus-window"],
+      () => getFocusedWindow() !== this.win,
+    );
+
+    this.modifierWatchSourceId = GLib.timeout_add(
+      GLib.PRIORITY_DEFAULT_IDLE,
+      120,
+      () => {
+        if (this._activationModifierPressed()) {
+          return GLib.SOURCE_CONTINUE;
+        }
+        this.modifierWatchSourceId = 0;
+        this.exit("modifier released");
+        return GLib.SOURCE_REMOVE;
+      },
+    );
+  }
+
+  _connectExit(object, reason, signals, shouldExit = () => true) {
+    for (const signal of signals) {
+      if (
+        this._connectIf(
+          object,
+          signal,
+          () => shouldExit() && this.exit(reason),
+        )
+      ) return;
     }
   }
-  return { width: minWidth, height: minHeight };
-}
 
-function ensureLockedEdges(state, point, rect) {
-  const delta = getPointDelta(state.startPoint, point);
-  return lockEdges(state, delta, state.startPoint, rect);
-}
-
-function ensureLockedEdgesForDelta(state, delta, point, rect) {
-  return lockEdges(state, delta, point, rect);
-}
-
-function lockEdges(state, delta, point, rect) {
-  state.edges = lockResizeEdges(state.edges, delta, point, rect);
-  return hasLockedEdges(state.edges);
-}
-
-function computeResizeRect(rect, edges, startPoint, pointer, minSize) {
-  return computeResizeRectFromDelta(
-    rect,
-    edges,
-    getPointDelta(startPoint, pointer),
-    minSize,
-  );
-}
-
-function applyResizeRect(win, rect) {
-  if (!rect) {
-    return null;
+  _connect(object, ...signals) {
+    object.connectObject(...signals, this);
+    this.connectedObjects.add(object);
   }
-  const { x, y, width, height } = rect;
-  win.move_resize_frame(true, x, y, width, height);
-  return rect;
-}
 
-function getResizeStepDelta(symbol) {
-  switch (symbol) {
-    case Clutter.KEY_Left:
-    case Clutter.KEY_KP_Left:
-      return { x: -KEYBOARD_RESIZE_STEP, y: 0 };
-    case Clutter.KEY_Right:
-    case Clutter.KEY_KP_Right:
-      return { x: KEYBOARD_RESIZE_STEP, y: 0 };
-    case Clutter.KEY_Up:
-    case Clutter.KEY_KP_Up:
-      return { x: 0, y: -KEYBOARD_RESIZE_STEP };
-    case Clutter.KEY_Down:
-    case Clutter.KEY_KP_Down:
-      return { x: 0, y: KEYBOARD_RESIZE_STEP };
-    default:
-      return null;
+  _connectIf(object, signal, handler) {
+    if (!connectObjectIfSignal(object, signal, handler, this)) return false;
+    this.connectedObjects.add(object);
+    return true;
   }
 }
 
-function isShiftKeySymbol(symbol) {
+function isShift(symbol) {
   return symbol === Clutter.KEY_Shift_L || symbol === Clutter.KEY_Shift_R;
 }
 
-function handleResizeKeyPress(state, symbol) {
-  if (isShiftKeySymbol(symbol)) {
-    handleShiftPress(state);
-    return Clutter.EVENT_STOP;
-  }
-
-  const delta = getResizeStepDelta(symbol);
-  if (!delta) {
-    return Clutter.EVENT_PROPAGATE;
-  }
-
-  const point = getPointerPoint();
-  ensureLockedEdgesForDelta(state, delta, point, state.currentRect);
-  const targetRect = computeResizeRectFromDelta(
-    state.currentRect,
-    state.edges,
-    delta,
-    state.minSize,
-  );
-  if (targetRect) {
-    queueResizeRect(state, targetRect, point, "keyboard");
-  }
-  return Clutter.EVENT_STOP;
-}
-
-function handleResizeKeyRelease(state, event, exitResize) {
-  if (!hasSuperKeyPressed()) {
-    exitResize(`event ${event.type()}`);
-    return Clutter.EVENT_STOP;
-  }
-
-  const keySymbol = event.get_key_symbol?.();
-  if (isShiftKeySymbol(keySymbol)) {
-    state.shiftPressed = false;
-    return Clutter.EVENT_STOP;
-  }
-
-  if (
-    keySymbol === Clutter.KEY_Left ||
-    keySymbol === Clutter.KEY_KP_Left ||
-    keySymbol === Clutter.KEY_Right ||
-    keySymbol === Clutter.KEY_KP_Right ||
-    keySymbol === Clutter.KEY_Up ||
-    keySymbol === Clutter.KEY_KP_Up ||
-    keySymbol === Clutter.KEY_Down ||
-    keySymbol === Clutter.KEY_KP_Down ||
-    keySymbol === Clutter.KEY_Escape
-  ) {
-    return Clutter.EVENT_STOP;
-  }
-
-  return Clutter.EVENT_PROPAGATE;
-}
-
-function beginModalGrab(state, exitResize) {
-  if (state.modalGrab) {
-    return true;
-  }
-
-  const actor = new St.Widget({
-    reactive: true,
-    can_focus: true,
-    opacity: 0,
-    x: 0,
-    y: 0,
-    width: 1,
-    height: 1,
-  });
-
-  actor.connectObject(
-    "key-press-event",
-    (_actor, event) => {
-      const keySymbol = event.get_key_symbol?.();
-      if (keySymbol === Clutter.KEY_Escape) {
-        exitResize("escape");
-        return Clutter.EVENT_STOP;
-      }
-      return handleResizeKeyPress(state, keySymbol);
-    },
-    state,
-  );
-  actor.connectObject(
-    "key-release-event",
-    (_actor, event) => handleResizeKeyRelease(state, event, exitResize),
-    state,
-  );
-
-  Main.uiGroup.add_child(actor);
-  state.modalActor = actor;
-  state.modalGrab = Main.pushModal(actor);
-  if (!state.modalGrab) {
-    releaseModalGrab(state);
-    return false;
-  }
-  return true;
-}
-
-function releaseModalGrab(state) {
-  if (state.modalGrab) {
-    Main.popModal(state.modalGrab);
-    state.modalGrab = null;
-  }
-  state.modalActor?.disconnectObject?.(state);
-  state.modalActor?.destroy();
-  state.modalActor = null;
-}
-
-function suppressSuperArrowBindings(state, logger) {
-  if (state.bindingOverrides) {
-    return;
-  }
-
-  state.bindingOverrides = new KeybindingOverrideLease(
-    getConflictKeybindingIndex(state.stateMap),
-    acceleratorsEqual,
-  );
-  const changes = state.bindingOverrides.suppressMatching(isSuperArrowBinding);
-  for (const { schemaId, key, bindings } of changes) {
-    logger.verboseLog(
-      `win_mouseresize: suppressed ${schemaId}::${key} (${
-        bindings.join(", ")
-      })`,
-    );
-  }
-}
-
-function restoreSuppressedBindings(state) {
-  state.bindingOverrides?.restore();
-  state.bindingOverrides = null;
-}
-
-// Indicator helpers
-
-function ensureResizeIndicator(state) {
-  if (state.indicator) {
-    return;
-  }
-  const borderColor = state.indicatorColors?.borderColor ??
-    DEFAULT_INDICATOR_BORDER_COLOR;
-  const backgroundColor = state.indicatorColors?.backgroundColor ??
-    DEFAULT_INDICATOR_BACKGROUND_COLOR;
-  const borderSize = getIndicatorBorderSize(state);
-  const indicator = new St.Widget({
-    reactive: false,
-    style: `background-color: ${backgroundColor};` +
-      `border: ${borderSize}px solid ${borderColor};` +
-      "border-radius: 5px;",
-  });
-  indicator.hide();
-  Main.uiGroup.add_child(indicator);
-  state.indicator = indicator;
-}
-
-function updateResizeIndicator(state, rect) {
-  ensureResizeIndicator(state);
-  const indicator = state.indicator;
-  const borderSize = getIndicatorBorderSize(state);
-  const width = rect.width + borderSize * 2;
-  const height = rect.height + borderSize * 2;
-  const x = rect.x - borderSize;
-  const y = rect.y - borderSize;
-  indicator.set_position(x, y);
-  indicator.set_size(width, height);
-  indicator.show();
-}
-
-// State helpers
-
-function createState(stateMap) {
-  let state = stateMap.get(STATE_KEY);
-  if (state) {
-    end(state);
-  }
-  state = _newState(stateMap);
-  stateMap.set(STATE_KEY, state);
-  return state;
-}
-
-function _newState(stateMap) {
-  return {
-    stateMap,
-    active: false,
-    cursorTracker: null,
-    modalActor: null,
-    modalGrab: null,
-    bindingOverrides: null,
-    win: null,
-    winId: null,
-    indicator: null,
-    indicatorColors: null,
-    indicatorBorderSize: normalizeIndicatorBorderSize(),
-    edges: null,
-    startRect: null,
-    startPoint: null,
-    currentRect: null,
-    minSize: null,
-    pendingResize: null,
-    pendingRect: null,
-    lastResizeRect: null,
-    resizeSourceId: 0,
-    indicatorSourceId: 0,
-    superWatchSourceId: 0,
-  };
-}
-
-function resetState(state) {
-  Object.assign(state, _newState(state.stateMap));
-}
-
-function getConflictKeybindingIndex(stateMap) {
-  let index = stateMap.get(CONFLICT_INDEX_KEY);
-  if (!index) {
-    index = createConflictKeybindingIndex();
-    stateMap.set(CONFLICT_INDEX_KEY, index);
-  }
-  return index;
-}
-
-function getIndicatorBorderSize(state) {
-  return normalizeIndicatorBorderSize(state?.indicatorBorderSize);
-}
-
-// Signal helpers
-
-function connectExitSignals(state, exitResize) {
-  state.win.connectObject(
-    "unmanaged",
-    () => exitResize("window unmanaged"),
-    state,
-  );
-  connectObjectIfSignal(
-    global.stage,
-    "captured-event",
-    (_actor, event) => {
-      const type = event.type();
-      if (type === Clutter.EventType.KEY_STATE && syncShiftKeyState(state)) {
-        return Clutter.EVENT_STOP;
-      }
-      if (
-        type === Clutter.EventType.KEY_RELEASE ||
-        type === Clutter.EventType.KEY_STATE
-      ) {
-        if (!hasSuperKeyPressed()) {
-          exitResize(`event ${type}`);
-        }
-      }
-      return Clutter.EVENT_PROPAGATE;
-    },
-    state,
-  );
-
-  connectObjectIfSignal(
-    global.workspace_manager,
-    "active-workspace-changed",
-    () => exitResize("workspace changed"),
-    state,
-  );
-
-  const monitorManager = getMonitorManager();
-  connectObjectIfSignal(
-    monitorManager,
-    "monitors-changed",
-    () => exitResize("monitors changed"),
-    state,
-  );
-
-  connectOverviewSignals(state, () => exitResize("overview"));
-  connectLayoutStateSignals(state, () => exitResize("layout state"));
-  connectDisplaySignals(
-    state,
-    () => exitResize("display event"),
-    () => {
-      const focused = getFocusedWindow();
-      if (!focused || focused.get_id() !== state.winId) {
-        exitResize("focus changed");
-      }
-    },
-  );
-
-  state.superWatchSourceId = GLib.timeout_add(
-    GLib.PRIORITY_DEFAULT_IDLE,
-    120,
-    () => {
-      if (!state.active) {
-        state.superWatchSourceId = 0;
-        return GLib.SOURCE_REMOVE;
-      }
-      if (!hasSuperKeyPressed()) {
-        state.superWatchSourceId = 0;
-        exitResize("super released");
-        return GLib.SOURCE_REMOVE;
-      }
-      return GLib.SOURCE_CONTINUE;
-    },
-  );
-}
-
-function hasSuperKeyPressed() {
-  const SUPER_KEY_MASK = Clutter.ModifierType.SUPER_MASK |
-    Clutter.ModifierType.META_MASK |
-    Clutter.ModifierType.MOD4_MASK;
-  const { modifiers } = getPointerData();
-  return (modifiers & SUPER_KEY_MASK) !== 0;
-}
-
-function hasShiftKeyPressed() {
-  const { modifiers } = getPointerData();
-  return (modifiers & Clutter.ModifierType.SHIFT_MASK) !== 0;
-}
-
-function connectOverviewSignals(state, onEvent) {
-  const overview = Main.overview;
-  if (!overview) {
-    return;
-  }
-  const signalNames = [
-    "showing",
-    "shown",
-    "hiding",
-    "hidden",
-    "notify::visible",
-  ];
-  for (const name of signalNames) {
-    connectObjectIfSignal(overview, name, onEvent, state);
-  }
-}
-
-function connectLayoutStateSignals(state, onEvent) {
-  const layoutManager = Main.layoutManager;
-  if (!layoutManager) {
-    return;
-  }
-  const targets = [
-    layoutManager.overviewGroup,
-    layoutManager._overviewGroup,
-    layoutManager.panelBox,
-    layoutManager._panelBox,
-  ].filter(Boolean);
-  const signalNames = ["notify::visible", "show", "hide"];
-  for (const target of targets) {
-    for (const name of signalNames) {
-      connectObjectIfSignal(
-        target,
-        name,
-        () => {
-          onEvent();
-        },
-        state,
-      );
-    }
-  }
-}
-
-function connectDisplaySignals(
-  state,
-  onEvent,
-  onFocusChange,
-) {
-  const display = getDisplay();
-  if (!display) {
-    return;
-  }
-  const signalNames = [
-    "window-created",
-    "window-demands-attention",
-    "window-marked-urgent",
-    "restacked",
-    "workareas-changed",
-    "grab-op-begin",
-    "grab-op-end",
-  ];
-  for (const name of signalNames) {
-    connectObjectIfSignal(display, name, onEvent, state);
-  }
-  if (!connectObjectIfSignal(display, "focus-window", onFocusChange, state)) {
-    connectObjectIfSignal(
-      display,
-      "notify::focus-window",
-      onFocusChange,
-      state,
-    );
-  }
+function getModifierMask(binding) {
+  return binding.get_mask() & ~Clutter.ModifierType.SHIFT_MASK;
 }

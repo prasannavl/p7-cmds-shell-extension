@@ -19,12 +19,10 @@
     systems = ["x86_64-linux" "aarch64-linux"];
     forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
     pkgsFor = system: import nixpkgs {inherit system;};
-    commonPackagesFor = pkgs:
+    buildPackagesFor = pkgs:
       with pkgs; [
         glib
-        gnumake
         gnome-shell
-        libadwaita
         unzip
         zip
       ];
@@ -48,7 +46,7 @@
   in {
     packages = forAllSystems (system: let
       pkgs = pkgsFor system;
-      commonPackages = commonPackagesFor pkgs;
+      buildPackages = buildPackagesFor pkgs;
     in rec {
       p7-cmds = pkgs.stdenvNoCC.mkDerivation {
         pname = "gnome-shell-extension-p7-cmds";
@@ -56,7 +54,7 @@
 
         version = builtins.toString metadata.version;
         src = ./.;
-        nativeBuildInputs = commonPackages;
+        nativeBuildInputs = buildPackages;
 
         buildPhase = ''
           runHook preBuild
@@ -86,7 +84,7 @@
 
     devShells = forAllSystems (system: let
       pkgs = pkgsFor system;
-      commonPackages = commonPackagesFor pkgs;
+      buildPackages = buildPackagesFor pkgs;
       formatterPkgs = formatterPkgsFor pkgs;
       versionShells = nixpkgs.lib.mapAttrs (
         _name: source: let
@@ -98,6 +96,7 @@
               versionPkgs.gjs
               versionPkgs.glib
               versionPkgs.libadwaita
+              versionPkgs.xvfb-run
               gnomeShell
             ];
             shellHook = ''
@@ -109,7 +108,12 @@
     in
       versionShells // {
         default = pkgs.mkShell {
-          packages = commonPackages ++ formatterPkgs ++ [pkgs.gjs];
+          packages = buildPackages ++ formatterPkgs ++ [
+            pkgs.gjs
+            pkgs.gnumake
+            pkgs.libadwaita
+            pkgs.xvfb-run
+          ];
           shellHook = ''
             shellGiPath=$(nix-store -qR ${pkgs.gnome-shell} | while IFS= read -r dependency; do
               find "$dependency/lib" -maxdepth 3 -type f -name '*.typelib' -printf '%h\n' 2>/dev/null

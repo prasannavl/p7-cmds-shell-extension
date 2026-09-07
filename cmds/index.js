@@ -1,25 +1,26 @@
 import { COMMAND_DEFINITIONS } from "../common/config.js";
-import { win_mouseresize, win_mouseresize_destroy } from "./win_mouseresize.js";
-import { win_optsize, win_optsize_destroy } from "./win_optsize.js";
+import { createWinMouseResizeCommand } from "./win_mouseresize.js";
+import { createWinOptsizeCommand } from "./win_optsize.js";
 
-const COMMAND_HANDLERS = {
-  "cmd-win-optsize": win_optsize,
-  "cmd-win-mouseresize": win_mouseresize,
-};
+const COMMAND_FACTORIES = Object.freeze({
+  "cmd-win-optsize": createWinOptsizeCommand,
+  "cmd-win-mouseresize": createWinMouseResizeCommand,
+});
 
 export function createCommands() {
-  const state = new Map();
-  const list = COMMAND_DEFINITIONS.map((command) => ({
-    ...command,
+  const state = new Map(
+    Object.entries(COMMAND_FACTORIES).map(([id, create]) => [id, create()]),
+  );
+  const list = COMMAND_DEFINITIONS.map((definition) => ({
+    ...definition,
     handler: (config, logger, ...args) =>
-      COMMAND_HANDLERS[command.id](state, config, logger, ...args),
+      state.get(definition.id).run(config, logger, ...args),
   }));
 
   return {
     list,
     destroy() {
-      win_mouseresize_destroy(state);
-      win_optsize_destroy(state);
+      for (const command of state.values()) command.destroy();
       state.clear();
     },
   };

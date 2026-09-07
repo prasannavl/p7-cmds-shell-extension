@@ -17,7 +17,7 @@ export class Logger {
   }
 
   verboseLog(...args) {
-    if (this._verboseEnabled) this._logger.log(...args);
+    if (this._verboseEnabled) this.log(...args);
   }
 
   error(...args) {

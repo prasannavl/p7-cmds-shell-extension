@@ -1,6 +1,8 @@
 export let layoutManager = null;
 export const overview = null;
-export const uiGroup = null;
+export let uiGroup = null;
+let modalGrab = null;
+export let poppedModal = null;
 export const wm = {
   added: [],
   removed: [],
@@ -27,11 +29,19 @@ export const wm = {
 };
 
 export function pushModal() {
-  return null;
+  return modalGrab;
 }
 
-export function popModal() {}
+export function popModal(grab) {
+  poppedModal = grab;
+}
 
 export function setLayoutManager(value) {
   layoutManager = value;
+}
+
+export function setModalEnvironment(group, grab) {
+  uiGroup = group;
+  modalGrab = grab;
+  poppedModal = null;
 }

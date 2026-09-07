@@ -1,16 +1,20 @@
 import Meta from "gi://Meta";
 import Shell from "gi://Shell";
 import * as Main from "resource:///org/gnome/shell/ui/main.js";
-import { ConfigManager } from "../common/config.js";
+import { ConfigManager, KEYBINDING_SETTING_KEYS } from "../common/config.js";
 import {
   createConflictKeybindingIndex,
-  findConflictingKeybindings,
-  KeybindingOverrideLease,
+  KeybindingOverrides,
 } from "../common/keybindings.js";
 import { acceleratorsEqual, normalizeAcceleratorKey } from "./compat.js";
 
 export class KeybindingManager {
-  constructor(settings, logger, commands) {
+  constructor(
+    settings,
+    logger,
+    commands,
+    conflictIndex = createConflictKeybindingIndex(),
+  ) {
     this._settings = settings;
     this._logger = logger;
     this._commands = commands;
@@ -19,101 +23,111 @@ export class KeybindingManager {
       actionModes: Shell.ActionMode,
       normalizeAcceleratorKey,
     });
-    this._configChangeCallback = (change) => this._onConfigChanged(change);
-    this._conflictIndex = createConflictKeybindingIndex();
-    this._overrideLease = null;
+    this._overrides = new KeybindingOverrides(
+      conflictIndex,
+      acceleratorsEqual,
+    );
+    this._bindingOverride = null;
+    this._commandSuppressions = new Set();
+    this._commandRuntime = Object.freeze({
+      suppressKeybindings: (matches) => this._suppressKeybindings(matches),
+    });
     this._boundCommandIds = [];
   }
 
   enable() {
-    this._configManager.addConfigChangeListener(this._configChangeCallback);
+    this._unsubscribe = this._configManager.subscribe((key) =>
+      this._onConfigChanged(key)
+    );
     this._applyBindings();
   }
 
   disable() {
+    this._unsubscribe?.();
+    this._unsubscribe = null;
     this._removeKeybindings();
-    this._restoreConflicts();
-    this._configManager.removeConfigChangeListener(this._configChangeCallback);
+    this._bindingOverride = null;
+    this._commandSuppressions.clear();
+    this._logRestoration(this._overrides.clear());
     this._configManager.destroy();
   }
 
+  get config() {
+    return this._configManager.config;
+  }
+
   reload() {
-    this._removeKeybindings();
-    this._restoreConflicts();
+    this._clearBindings();
     this._applyBindings();
   }
 
-  _onConfigChanged(changeType) {
-    this._logger.verboseLog(`Config changed: ${changeType}`);
-    if (changeType === "settings-changed") this.reload();
+  _onConfigChanged(key) {
+    this._logger.verboseLog(`Config changed: ${key}`);
+    if (KEYBINDING_SETTING_KEYS.includes(key)) this.reload();
   }
 
   _applyBindings() {
-    const config = this._configManager.getConfig();
-    const keybindings = config?.keybindings ?? {};
-    const keybindingFlags = Number.isInteger(config?.keybindingFlags)
-      ? config.keybindingFlags
-      : Meta.KeyBindingFlags.NONE;
-    const actionMode = Number.isInteger(config?.actionMode)
-      ? config.actionMode
-      : Shell.ActionMode.ALL;
-    const shouldOverride = this._settings.get_boolean(
-      "override-conflicting-bindings",
-    );
+    const {
+      keybindings,
+      keybindingFlags,
+      actionMode,
+      overrideConflictingBindings,
+    } = this.config;
     const commandsToBind = [];
+    const claimedAccelerators = [];
 
     for (const command of this._commands) {
-      const accelerators = keybindings[command.id] ?? [];
-      if (!Array.isArray(accelerators) || accelerators.length === 0) continue;
+      const accelerators = keybindings[command.id];
+      if (accelerators.length === 0) continue;
 
-      const conflicts = accelerators.flatMap((accel) =>
-        findConflictingKeybindings(
-          this._conflictIndex,
-          accel,
-          acceleratorsEqual,
-        ).map((match) => ({ accel, ...match }))
+      if (this._isCommandSuppressed(accelerators)) {
+        this._logger.verboseLog(`Temporarily suppressed keybind ${command.id}`);
+        continue;
+      }
+
+      const duplicate = accelerators.find((accelerator) =>
+        claimedAccelerators.some((claimed) =>
+          acceleratorsEqual(accelerator, claimed)
+        )
       );
-      if (conflicts.length > 0 && !shouldOverride) {
+      if (duplicate) {
+        this._logger.error(
+          `Skipped binding ${command.id} - ${duplicate} is already used by another command`,
+        );
+        continue;
+      }
+
+      const conflicts = accelerators.filter(
+        (accelerator) => this._overrides.findConflicts(accelerator).length > 0,
+      );
+      if (conflicts.length > 0 && !overrideConflictingBindings) {
         this._logger.verboseLog(
           `Skipped binding ${command.id} - conflicts with existing bindings`,
         );
         continue;
       }
       commandsToBind.push({ command, accelerators, conflicts });
+      claimedAccelerators.push(...accelerators);
     }
 
-    const conflictingAccelerators = commandsToBind.flatMap(({ conflicts }) =>
-      conflicts.map(({ accel }) => accel)
+    const conflictingAccelerators = commandsToBind.flatMap(
+      ({ conflicts }) => conflicts,
     );
-    if (shouldOverride && conflictingAccelerators.length > 0) {
-      this._overrideLease = new KeybindingOverrideLease(
-        this._conflictIndex,
-        acceleratorsEqual,
+    if (overrideConflictingBindings && conflictingAccelerators.length > 0) {
+      this._bindingOverride = this._createOverride(
+        (binding) =>
+          conflictingAccelerators.some((accelerator) =>
+            acceleratorsEqual(binding, accelerator)
+          ),
+        "Removed conflicting",
       );
-      const changes = this._overrideLease.suppressMatching((binding) =>
-        conflictingAccelerators.some((accelerator) =>
-          acceleratorsEqual(binding, accelerator)
-        )
-      );
-      for (const { schemaId, key, bindings } of changes) {
-        this._logger.verboseLog(
-          `Removed conflicting keybinds ${schemaId}::${key} (${
-            bindings.join(", ")
-          })`,
-        );
+      if (!this._bindingOverride) {
+        this._clearBindings();
+        return;
       }
     }
 
     for (const { command, accelerators } of commandsToBind) {
-      const handler = (...args) => {
-        this._logger.log(`Called keybind ${command.id}`);
-        return command.handler(
-          this._configManager.getConfig(),
-          this._logger,
-          ...args,
-        );
-      };
-
       let action;
       try {
         action = Main.wm.addKeybinding(
@@ -121,16 +135,16 @@ export class KeybindingManager {
           this._settings,
           keybindingFlags,
           actionMode,
-          handler,
+          (...args) => this._run(command, args),
         );
       } catch (error) {
         this._logger.error(`Failed to bind keybind ${command.id}`, error);
-        this._rollbackBindings();
+        this._clearBindings();
         return;
       }
       if (action === Meta.KeyBindingAction.NONE) {
         this._logger.error(`Failed to bind keybind ${command.id}`);
-        this._rollbackBindings();
+        this._clearBindings();
         return;
       }
       this._boundCommandIds.push(command.id);
@@ -140,6 +154,16 @@ export class KeybindingManager {
     }
   }
 
+  _run(command, args) {
+    this._logger.log(`Called keybind ${command.id}`);
+    return command.handler(
+      this.config,
+      this._logger,
+      this._commandRuntime,
+      ...args,
+    );
+  }
+
   _removeKeybindings() {
     for (const commandId of this._boundCommandIds) {
       Main.wm.removeKeybinding(commandId);
@@ -147,15 +171,66 @@ export class KeybindingManager {
     this._boundCommandIds = [];
   }
 
-  _restoreConflicts() {
-    for (const { schemaId, key } of this._overrideLease?.restore() ?? []) {
+  _logRestoration({ changes = [], failures = [] } = {}) {
+    for (const { schemaId, key } of changes) {
       this._logger.verboseLog(`Restored keybind ${schemaId}::${key}`);
     }
-    this._overrideLease = null;
+    for (const { schemaId, key } of failures) {
+      this._logger.error(`Failed to restore keybind ${schemaId}::${key}`);
+    }
   }
 
-  _rollbackBindings() {
+  _clearBindings() {
     this._removeKeybindings();
-    this._restoreConflicts();
+    this._logRestoration(this._bindingOverride?.restore());
+    this._bindingOverride = null;
+  }
+
+  _suppressKeybindings(matches) {
+    const override = this._createOverride(matches, "Suppressed");
+    if (!override) return null;
+    this._commandSuppressions.add(override);
+    if (this._unsubscribe && this._matchesCommandBindings(matches)) {
+      this.reload();
+    }
+
+    return {
+      restore: () => {
+        if (!this._commandSuppressions.delete(override)) return [];
+        const restored = override.restore();
+        this._logRestoration(restored);
+        if (this._unsubscribe && this._matchesCommandBindings(matches)) {
+          this.reload();
+        }
+        return restored.changes;
+      },
+    };
+  }
+
+  _createOverride(matches, label) {
+    const override = this._overrides.suppress(matches);
+    for (const { schemaId, key, bindings } of override.changes) {
+      this._logger.verboseLog(
+        `${label} keybind ${schemaId}::${key} (${bindings.join(", ")})`,
+      );
+    }
+    if (override.failures.length === 0) return override;
+    for (const { schemaId, key } of override.failures) {
+      this._logger.error(`Failed to suppress keybind ${schemaId}::${key}`);
+    }
+    this._logRestoration(override.restore());
+    return null;
+  }
+
+  _isCommandSuppressed(accelerators) {
+    return accelerators.some((accelerator) =>
+      [...this._commandSuppressions].some(({ matches }) => matches(accelerator))
+    );
+  }
+
+  _matchesCommandBindings(matches) {
+    return this._commands.some(({ id }) =>
+      this.config.keybindings[id].some(matches)
+    );
   }
 }

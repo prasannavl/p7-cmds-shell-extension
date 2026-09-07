@@ -11,13 +11,13 @@ the GNOME shell experience more intuitive for power users.
 ## Screencasts
 
 <p align="center">
-  <img src="docs/assets/screencast-optsize.gif" alt="Borders reacting to edge-aware logic" width="100%" style="max-width: 640px; height: auto;"/>
+  <img src="docs/assets/screencast-optsize.gif" alt="Window optimal-size command demonstration" width="100%" style="max-width: 640px; height: auto;"/>
   <br/>
   Window auto optimal size (based on output size): `Super` + `x`
 </p>
 
 <p align="center">
-  <img src="docs/assets/screencast-resize.gif" alt="Borders reacting to edge-aware logic" width="100%" style="max-width: 640px; height: auto;"/>
+  <img src="docs/assets/screencast-resize.gif" alt="Mouse-driven window resize demonstration" width="100%" style="max-width: 640px; height: auto;"/>
   <br/>
   Window auto resize on mouse move: `Super` + `Shift` + `x`
 </p>
@@ -45,6 +45,9 @@ you move the cursor past it, then dragging to the target size.
 
 - Default keybinding: `<Super><Shift>x`
 - Press and hold Super and move mouse to resize.
+- Shift in the activation shortcut is ignored. After movement locks an edge,
+  each new Shift press flips the currently locked edges; holding Shift does not
+  affect edges locked later.
 
 #### Notes
 
@@ -57,9 +60,9 @@ For a local install:
 ```sh
 nix develop
 make ginstall
+```
 
 Log out, login again and enable.
-```
 
 ## Configuration
 
@@ -72,6 +75,11 @@ Open the extension preferences to:
 
 - Add/remove keybindings for each command.
 - Edit win_optsize breakpoints and scales, or edit the JSON directly.
+- Export, import, inspect, or replace the full configuration as JSON.
+
+Preference changes are saved immediately. The win_optsize fallback scales are
+used only when no breakpoint matches; the first matching breakpoint supplies the
+active scales.
 
 ### win_optsize JSON
 
@@ -81,6 +89,7 @@ Example (defaults):
 
 ```json
 {
+  "aspectBasedInversion": false,
   "scales": [
     [0.95, 0.9]
   ],
@@ -109,7 +118,7 @@ Notes:
 - Values greater than `1` are treated as exact pixel sizes.
 - Exact pixel sizes larger than the current monitor axis fall back to `0.95` of
   that axis.
-- Use `null` for auto sizing based on the monitor aspect ratio.
+- The height scale may be `null` to preserve the monitor aspect ratio.
 - Optional `aspectBasedInversion: true` will swap width/height scales on
   portrait screens.
 
@@ -121,8 +130,8 @@ Keys:
 - `win-mouseresize-background-color`
 - `win-mouseresize-border-size`
 
-Color values are CSS color strings (for example `rgba(255, 255, 255, 0.8)`).
-Border size is in pixels.
+Color syntax is passed to St after rejecting characters that could start another
+CSS declaration. Border size is 1–20 pixels.
 
 ## Development
 

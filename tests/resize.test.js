@@ -5,7 +5,7 @@ import {
   lockResizeEdges,
   preserveResizeAnchors,
 } from "../common/window.js";
-import { isSuperArrowBinding } from "../common/config.js";
+import { isModifiedArrowBinding } from "../common/config.js";
 import { assertEquals } from "./testlib.js";
 
 const rect = { x: 100, y: 200, width: 500, height: 400 };
@@ -101,11 +101,16 @@ Deno.test("Mutter size corrections preserve requested fixed anchors", () => {
   );
 });
 
-Deno.test("only Super arrow accelerators are suppressed", () => {
+Deno.test("modified arrow accelerators are suppressed during resize", () => {
   for (const key of ["Left", "Right", "Up", "Down", "KP_Left", "KP_Right"]) {
-    assertEquals(isSuperArrowBinding(`<Super>${key}`), true);
+    for (
+      const modifier of ["Super", "Meta", "Mod4", "Control", "Alt", "Hyper"]
+    ) {
+      assertEquals(isModifiedArrowBinding(`<${modifier}>${key}`), true);
+    }
   }
-  assertEquals(isSuperArrowBinding("<Super>x"), false);
-  assertEquals(isSuperArrowBinding("<Control>Left"), false);
-  assertEquals(isSuperArrowBinding("<shift><super>Left"), true);
+  assertEquals(isModifiedArrowBinding("Left"), false);
+  assertEquals(isModifiedArrowBinding("<Super>x"), false);
+  assertEquals(isModifiedArrowBinding("<shift><super>Left"), true);
+  assertEquals(isModifiedArrowBinding("<Release><Super>left"), true);
 });

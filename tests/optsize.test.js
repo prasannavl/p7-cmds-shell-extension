@@ -38,10 +38,9 @@ Deno.test("empty breakpoint scales inherit the configured scales", () => {
   );
 });
 
-Deno.test("scale sizes support fractions, pixels, automatic height, and bounds", () => {
+Deno.test("scale sizes support fractions, pixels, and bounds", () => {
   assertEquals(resolveScaleSize(0.5, 1000), 500);
   assertEquals(resolveScaleSize(640, 1000), 640);
-  assertEquals(resolveScaleSize(null, 800, 600, 1.25), 480);
   assertEquals(resolveScaleSize(1200, 1000), 950);
   assertEquals(resolveScaleSize(0, 1000), 950);
   assertEquals(resolveScaleSize(-1, 1000), 950);
@@ -85,6 +84,21 @@ Deno.test("portrait inversion swaps configured width and height scales", () => {
     -1,
   );
   assertEquals(result.rect, { x: 100, y: 300, width: 600, height: 600 });
+});
+
+Deno.test("portrait inversion preserves automatic aspect sizing", () => {
+  const portrait = { x: 0, y: 0, width: 800, height: 1200 };
+  const result = getNextOptsize(
+    {
+      aspectBasedInversion: true,
+      scales: [[0.5, null]],
+      breakpoints: [],
+    },
+    portrait,
+    { x: 0, y: 0, width: 10, height: 10 },
+    -1,
+  );
+  assertEquals(result.rect, { x: 200, y: 300, width: 400, height: 600 });
 });
 
 Deno.test("restored geometry is clamped inside the current work area", () => {
